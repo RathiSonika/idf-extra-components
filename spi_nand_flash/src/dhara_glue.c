@@ -178,9 +178,20 @@ fail:
     return 0;
 }
 
-static int is_ecc_error(uint8_t status)
+#define PACK_2BITS_STATUS(status, bit1, bit0)         ((((status) & (bit1)) << 1) | ((status) & (bit0)))
+#define PACK_3BITS_STATUS(status, bit2, bit1, bit0)   ((((status) & (bit2)) << 2) | (((status) & (bit1)) << 1) | ((status) & (bit0)))
+
+static ecc_status_t get_ecc_status(uint8_t status, uint8_t ecc_status_reg_len_in_bits)
 {
-    return (status & STAT_ECC1) != 0 && (status & STAT_ECC0) == 0;
+    ecc_status_t ecc_status = STAT_ECC_OK;
+    if (ecc_status_reg_len_in_bits == 2) {
+        ecc_status = PACK_2BITS_STATUS(status, STAT_ECC1, STAT_ECC0);
+    } else if (ecc_status_reg_len_in_bits == 3) {
+        ecc_status = PACK_3BITS_STATUS(status, STAT_ECC2, STAT_ECC1, STAT_ECC0);
+    } else {
+        ecc_status = STAT_ECC_MAX;
+    }
+    return ecc_status;
 }
 
 int dhara_nand_read(const struct dhara_nand *n, dhara_page_t p, size_t offset, size_t length,
@@ -194,10 +205,17 @@ int dhara_nand_read(const struct dhara_nand *n, dhara_page_t p, size_t offset, s
 
     ESP_GOTO_ON_ERROR(read_page_and_wait(dev, p, &status), fail, TAG, "");
 
-    if (is_ecc_error(status)) {
-        ESP_LOGD(TAG, "read ecc error, page=%"PRIu32"", p);
+    ecc_status_t bits_corrected_status = get_ecc_status(status, dev->ecc_data.ecc_status_reg_len_in_bits);
+    dev->ecc_data.ecc_corrected_bits_status = bits_corrected_status;
+    if (bits_corrected_status) {
         dhara_set_error(err, DHARA_E_ECC);
-        return -1;
+        if (bits_corrected_status == STAT_ECC_MAX) {
+            ESP_LOGE(TAG, "%s: Error while initializing value of ecc_status_reg_len_in_bits", __func__);
+            return -1;
+        } else if (bits_corrected_status == STAT_ECC_NOT_CORRECTED) {
+            ESP_LOGD(TAG, "read ecc error, page=%"PRIu32"", p);
+            return -1;
+        }
     }
 
     ESP_GOTO_ON_ERROR(spi_nand_read(dev->config.device_handle, data, offset, length), fail, TAG, "");
@@ -217,10 +235,17 @@ int dhara_nand_copy(const struct dhara_nand *n, dhara_page_t src, dhara_page_t d
 
     ESP_GOTO_ON_ERROR(read_page_and_wait(dev, src, &status), fail, TAG, "");
 
-    if (is_ecc_error(status)) {
-        ESP_LOGD(TAG, "copy, ecc error");
+    ecc_status_t bits_corrected_status = get_ecc_status(status, dev->ecc_data.ecc_status_reg_len_in_bits);
+    dev->ecc_data.ecc_corrected_bits_status = bits_corrected_status;
+    if (bits_corrected_status) {
         dhara_set_error(err, DHARA_E_ECC);
-        return -1;
+        if (bits_corrected_status == STAT_ECC_MAX) {
+            ESP_LOGE(TAG, "%s: Error while initializing value of ecc_status_reg_len_in_bits", __func__);
+            return -1;
+        } else if (bits_corrected_status == STAT_ECC_NOT_CORRECTED) {
+            ESP_LOGD(TAG, "copy, ecc error");
+            return -1;
+        }
     }
 
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(dev->config.device_handle), fail, TAG, "");
