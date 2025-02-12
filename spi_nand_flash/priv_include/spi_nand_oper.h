@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <esp_err.h>
 #include <driver/spi_master.h>
+#include "nand.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,8 @@ typedef struct spi_nand_transaction_t spi_nand_transaction_t;
 #define CMD_READ_X2         0x3B
 #define CMD_READ_X4         0x6B
 #define CMD_ERASE_BLOCK     0xD8
+#define CMD_READ_DIO        0xBB
+#define CMD_READ_QIO        0xEB
 
 #define REG_PROTECT         0xA0
 #define REG_CONFIG          0xB0
@@ -55,16 +58,23 @@ typedef struct spi_nand_transaction_t spi_nand_transaction_t;
 #define STAT_ECC1           1 << 5
 #define STAT_ECC2           1 << 6
 
-esp_err_t spi_nand_execute_transaction(spi_device_handle_t device, spi_nand_transaction_t *transaction);
+#ifdef CONFIG_SPI_NAND_IO_MODE_SIO
+esp_err_t spi_nand_fast_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length);
+#define spi_nand_read(handle, data, column, length)    spi_nand_fast_read(handle, (uint8_t *)data, column, length)
+#elif CONFIG_SPI_NAND_IO_MODE_DOUT || CONFIG_SPI_NAND_IO_MODE_DIO
+esp_err_t spi_nand_dual_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length);
+#define spi_nand_read(handle, data, column, length)    spi_nand_dual_read(handle, (uint8_t *)data, column, length)
+#endif
 
-esp_err_t spi_nand_read_register(spi_device_handle_t device, uint8_t reg, uint8_t *val);
-esp_err_t spi_nand_write_register(spi_device_handle_t device, uint8_t reg, uint8_t val);
-esp_err_t spi_nand_write_enable(spi_device_handle_t device);
-esp_err_t spi_nand_read_page(spi_device_handle_t device, uint32_t page);
-esp_err_t spi_nand_read(spi_device_handle_t device, uint8_t *data, uint16_t column, uint16_t length);
-esp_err_t spi_nand_program_execute(spi_device_handle_t device, uint32_t page);
-esp_err_t spi_nand_program_load(spi_device_handle_t device, const uint8_t *data, uint16_t column, uint16_t length);
-esp_err_t spi_nand_erase_block(spi_device_handle_t device, uint32_t page);
+esp_err_t spi_nand_execute_transaction(spi_nand_flash_device_t *handle, spi_nand_transaction_t *transaction);
+
+esp_err_t spi_nand_read_register(spi_nand_flash_device_t *handle, uint8_t reg, uint8_t *val);
+esp_err_t spi_nand_write_register(spi_nand_flash_device_t *handle, uint8_t reg, uint8_t val);
+esp_err_t spi_nand_write_enable(spi_nand_flash_device_t *handle);
+esp_err_t spi_nand_read_page(spi_nand_flash_device_t *handle, uint32_t page);
+esp_err_t spi_nand_program_execute(spi_nand_flash_device_t *handle, uint32_t page);
+esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *data, uint16_t column, uint16_t length);
+esp_err_t spi_nand_erase_block(spi_nand_flash_device_t *handle, uint32_t page);
 
 #ifdef __cplusplus
 }
