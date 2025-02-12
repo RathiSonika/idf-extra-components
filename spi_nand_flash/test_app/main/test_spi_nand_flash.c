@@ -48,6 +48,10 @@
 
 #define PATTERN_SEED    0x12345678
 
+// SPI_FLAGS -> SPI_DEVICE_HALFDUPLEX => half-duplex mode
+// SPI_FLAGS -> 0 => full-duplex mode
+#define SPI_FLAGS       SPI_DEVICE_HALFDUPLEX
+
 static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count);
 static void setup_bus(spi_host_device_t host_id)
 {
@@ -72,7 +76,7 @@ static void setup_chip(spi_device_handle_t *spi)
         .mode = 0,
         .spics_io_num = PIN_CS,
         .queue_size = 10,
-        .flags = SPI_DEVICE_HALFDUPLEX,
+        .flags = SPI_FLAGS,
     };
 
     TEST_ESP_OK(spi_bus_add_device(HOST_ID, &devcfg, spi));
@@ -85,6 +89,7 @@ static void setup_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_ha
 
     spi_nand_flash_config_t nand_flash_config = {
         .device_handle = spi,
+        .flags = SPI_FLAGS,
     };
     spi_nand_flash_device_t *device_handle;
     TEST_ESP_OK(spi_nand_flash_init_device(&nand_flash_config, &device_handle));

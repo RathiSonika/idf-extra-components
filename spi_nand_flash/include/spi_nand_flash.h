@@ -24,6 +24,7 @@ struct spi_nand_flash_config_t {
     spi_device_handle_t device_handle;       ///< SPI Device for this nand chip.
     uint8_t gc_factor;                       ///< The gc factor controls the number of blocks to spare block ratio.
     ///< Lower values will reduce the available space but increase performance
+    uint8_t flags;                          ///< set flag with SPI_DEVICE_HALFDUPLEX for half duplex communcation.
 };
 
 typedef struct spi_nand_flash_config_t spi_nand_flash_config_t;
