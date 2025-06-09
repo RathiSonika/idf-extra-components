@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include "esp_err.h"
+#include "esp_blockdev.h"
 #ifndef CONFIG_IDF_TARGET_LINUX
 #include "driver/spi_common.h"
 #include "driver/spi_master.h"
@@ -158,6 +159,8 @@ esp_err_t spi_nand_flash_get_block_num(spi_nand_flash_device_t *handle, uint32_t
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
 
+esp_err_t spi_nand_flash_get_blockdev(spi_nand_flash_config_t *conf, spi_nand_flash_device_t **dev, esp_blockdev_handle_t *out_bdl_handle_ptr);
+esp_err_t spi_nand_flash_release_blockdev(const esp_blockdev_handle_t dev_handle);
 #ifdef __cplusplus
 }
 #endif
