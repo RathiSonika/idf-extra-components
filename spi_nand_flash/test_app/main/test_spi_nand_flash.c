@@ -22,6 +22,7 @@
 #include "unity.h"
 #include "soc/spi_pins.h"
 #include "sdkconfig.h"
+#include "esp_blockdev.h"
 
 
 // Pin mapping
@@ -48,7 +49,7 @@
 
 #define PATTERN_SEED    0x12345678
 
-static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count);
+static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count, esp_blockdev_handle_t bdl);
 static void setup_bus(spi_host_device_t host_id)
 {
     spi_bus_config_t spi_bus_cfg = {
@@ -78,7 +79,7 @@ static void setup_chip(spi_device_handle_t *spi, uint8_t flags)
     TEST_ESP_OK(spi_bus_add_device(HOST_ID, &devcfg, spi));
 }
 
-static void setup_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_handle_t *spi_handle, spi_nand_flash_io_mode_t mode, uint8_t flags)
+static void setup_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_handle_t *spi_handle, spi_nand_flash_io_mode_t mode, uint8_t flags, esp_blockdev_handle_t *bdl_handle)
 {
     spi_device_handle_t spi;
     setup_chip(&spi, flags);
@@ -89,15 +90,17 @@ static void setup_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_ha
         .io_mode = mode,
     };
     spi_nand_flash_device_t *device_handle;
-    TEST_ESP_OK(spi_nand_flash_init_device(&nand_flash_config, &device_handle));
+    esp_blockdev_handle_t bdl;
+    TEST_ESP_OK(spi_nand_flash_get_blockdev(&nand_flash_config, &device_handle, &bdl));
 
     *out_handle = device_handle;
     *spi_handle = spi;
+    *bdl_handle = bdl;
 }
 
-static void deinit_nand_flash(spi_nand_flash_device_t *flash, spi_device_handle_t spi)
+static void deinit_nand_flash(spi_nand_flash_device_t *flash, spi_device_handle_t spi, esp_blockdev_handle_t bdl_handle)
 {
-    spi_nand_flash_deinit_device(flash);
+    spi_nand_flash_release_blockdev(bdl_handle);
     spi_bus_remove_device(spi);
     spi_bus_free(HOST_ID);
 }
@@ -106,25 +109,34 @@ TEST_CASE("erase nand flash", "[spi_nand_flash]")
 {
     spi_nand_flash_device_t *nand_flash_device_handle;
     spi_device_handle_t spi;
-    setup_nand_flash(&nand_flash_device_handle, &spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX);
-    TEST_ESP_OK(spi_nand_erase_chip(nand_flash_device_handle));
-    do_single_write_test(nand_flash_device_handle, 1, 1);
-    deinit_nand_flash(nand_flash_device_handle, spi);
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&nand_flash_device_handle, &spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX, &bdl_handle);
+
+    uint32_t block_num, block_size;
+    TEST_ESP_OK(spi_nand_flash_get_block_num(nand_flash_device_handle, &block_num));
+    TEST_ESP_OK(spi_nand_flash_get_block_size(nand_flash_device_handle, &block_size));
+
+    TEST_ESP_OK(bdl_handle->erase(bdl_handle, 0, block_num * block_size));
+
+    do_single_write_test(nand_flash_device_handle, 1, 1, bdl_handle);
+    deinit_nand_flash(nand_flash_device_handle, spi, bdl_handle);
 }
 
 TEST_CASE("verify mark_bad_block works", "[spi_nand_flash]")
 {
     spi_nand_flash_device_t *nand_flash_device_handle;
     spi_device_handle_t spi;
-    setup_nand_flash(&nand_flash_device_handle, &spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX);
-    uint32_t sector_num, sector_size;
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&nand_flash_device_handle, &spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX, &bdl_handle);
 
-    TEST_ESP_OK(spi_nand_flash_get_capacity(nand_flash_device_handle, &sector_num));
-    TEST_ESP_OK(spi_nand_flash_get_sector_size(nand_flash_device_handle, &sector_size));
-    printf("Number of sectors: %" PRIu32 ", Sector size: %" PRIu32 "\n", sector_num, sector_size);
+    uint32_t block_num;
+    spi_nand_flash_get_block_num(nand_flash_device_handle, &block_num);
+
+    uint32_t sector_size = bdl_handle->geometry.read_size;
+    printf("Number of sectors: %" PRIu32 ", Sector size: %" PRIu32 "\n", block_num, sector_size);
 
     uint32_t test_block = 15;
-    if (test_block < sector_num) {
+    if (test_block < block_num) {
         bool is_bad_status = false;
         // Verify if test_block is not bad block
         TEST_ESP_OK(nand_wrap_is_bad(nand_flash_device_handle, test_block, &is_bad_status));
@@ -136,7 +148,7 @@ TEST_CASE("verify mark_bad_block works", "[spi_nand_flash]")
         TEST_ASSERT_TRUE(is_bad_status == true);
     }
 
-    deinit_nand_flash(nand_flash_device_handle, spi);
+    deinit_nand_flash(nand_flash_device_handle, spi, bdl_handle);
 }
 
 static void check_buffer(uint32_t seed, const uint8_t *src, size_t count)
@@ -158,7 +170,7 @@ static void fill_buffer(uint32_t seed, uint8_t *dst, size_t count)
     }
 }
 
-static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count)
+static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count, esp_blockdev_handle_t bdl)
 {
     uint8_t *temp_buf = NULL;
     uint8_t *pattern_buf = NULL;
@@ -181,13 +193,13 @@ static void do_single_write_test(spi_nand_flash_device_t *flash, uint32_t start_
 
     for (int i = start_sec; i < (start_sec + sec_count); i++) {
         int64_t start = esp_timer_get_time();
-        TEST_ESP_OK(spi_nand_flash_write_sector(flash, pattern_buf, i));
+        bdl->write(bdl, pattern_buf, i, sector_size);
         write_time += esp_timer_get_time() - start;
 
         memset((void *)temp_buf, 0x00, sector_size);
 
         start = esp_timer_get_time();
-        TEST_ESP_OK(spi_nand_flash_read_sector(flash, temp_buf, i));
+        bdl->read(bdl, temp_buf, sector_size, i, sector_size);
         read_time += esp_timer_get_time() - start;
 
         check_buffer(PATTERN_SEED, temp_buf, sector_size / sizeof(uint32_t));
@@ -204,21 +216,22 @@ static void test_write_nand_flash_sectors(spi_nand_flash_io_mode_t mode, uint8_t
     uint32_t sector_num, sector_size;
     spi_nand_flash_device_t *nand_flash_device_handle;
     spi_device_handle_t spi;
-    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags);
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags, &bdl_handle);
 
     TEST_ESP_OK(spi_nand_flash_get_capacity(nand_flash_device_handle, &sector_num));
     TEST_ESP_OK(spi_nand_flash_get_sector_size(nand_flash_device_handle, &sector_size));
     printf("Number of sectors: %" PRIu32 ", Sector size: %" PRIu32 "\n", sector_num, sector_size);
 
-    do_single_write_test(nand_flash_device_handle, 1, 16);
-    do_single_write_test(nand_flash_device_handle, 16, 32);
-    do_single_write_test(nand_flash_device_handle, 32, 64);
-    do_single_write_test(nand_flash_device_handle, 64, 128);
-    do_single_write_test(nand_flash_device_handle, sector_num / 2, 32);
-    do_single_write_test(nand_flash_device_handle, sector_num / 2, 256);
-    do_single_write_test(nand_flash_device_handle, sector_num - 20, 16);
+    do_single_write_test(nand_flash_device_handle, 1, 16, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, 16, 32, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, 32, 64, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, 64, 128, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, sector_num / 2, 32, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, sector_num / 2, 256, bdl_handle);
+    do_single_write_test(nand_flash_device_handle, sector_num - 20, 16, bdl_handle);
 
-    deinit_nand_flash(nand_flash_device_handle, spi);
+    deinit_nand_flash(nand_flash_device_handle, spi, bdl_handle);
 }
 
 TEST_CASE("read and write nand flash sectors (sio half-duplex)", "[spi_nand_flash]")
@@ -255,7 +268,8 @@ static void test_copy_nand_flash_sectors(spi_nand_flash_io_mode_t mode, uint8_t 
 {
     spi_nand_flash_device_t *nand_flash_device_handle;
     spi_device_handle_t spi;
-    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags);
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags, &bdl_handle);
     uint32_t sector_num, sector_size;
     uint32_t src_sec = 10;
     uint32_t dst_sec = 11;
@@ -265,10 +279,10 @@ static void test_copy_nand_flash_sectors(spi_nand_flash_io_mode_t mode, uint8_t 
     printf("Number of sectors: %" PRIu32 ", Sector size: %" PRIu32 "\n", sector_num, sector_size);
 
     if (src_sec < sector_num && dst_sec < sector_num) {
-        do_single_write_test(nand_flash_device_handle, src_sec, 1);
+        do_single_write_test(nand_flash_device_handle, src_sec, 1, bdl_handle);
         TEST_ESP_OK(spi_nand_flash_copy_sector(nand_flash_device_handle, src_sec, dst_sec));
     }
-    deinit_nand_flash(nand_flash_device_handle, spi);
+    deinit_nand_flash(nand_flash_device_handle, spi, bdl_handle);
 }
 
 TEST_CASE("copy nand flash sectors (sio half-duplex)", "[spi_nand_flash]")
@@ -307,7 +321,8 @@ static void test_nand_operations(spi_nand_flash_io_mode_t mode, uint8_t flags)
     spi_device_handle_t spi;
     uint32_t sector_num, sector_size, block_size;
 
-    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags);
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&nand_flash_device_handle, &spi, mode, flags, &bdl_handle);
 
     TEST_ESP_OK(spi_nand_flash_get_capacity(nand_flash_device_handle, &sector_num));
     TEST_ESP_OK(spi_nand_flash_get_sector_size(nand_flash_device_handle, &sector_size));
@@ -348,7 +363,7 @@ static void test_nand_operations(spi_nand_flash_io_mode_t mode, uint8_t flags)
     }
     free(pattern_buf);
     free(temp_buf);
-    deinit_nand_flash(nand_flash_device_handle, spi);
+    deinit_nand_flash(nand_flash_device_handle, spi, bdl_handle);
 }
 
 TEST_CASE("verify nand_prog, nand_read, nand_copy, nand_is_free works (bypassing dhara) (sio half-duplex)", "[spi_nand_flash]")
@@ -407,7 +422,8 @@ TEST_CASE("Fail safe test if chip is not detected", "[spi_nand_flash]")
         .io_mode = SPI_NAND_IO_MODE_SIO,
     };
     spi_nand_flash_device_t *device_handle;
-    esp_err_t err = spi_nand_flash_init_device(&nand_flash_config, &device_handle);
+    esp_blockdev_handle_t bdl;
+    esp_err_t err = spi_nand_flash_get_blockdev(&nand_flash_config, &device_handle, &bdl);
     TEST_ASSERT_TRUE(err != ESP_OK);
 
     spi_bus_remove_device(spi);

@@ -44,7 +44,7 @@ static const char *TAG = "debug_app";
 #define SPI_DMA_CHAN SPI_DMA_CH_AUTO
 #endif
 
-static void example_init_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_handle_t *spi_handle)
+static void example_init_nand_flash(spi_nand_flash_device_t **out_handle, spi_device_handle_t *spi_handle, esp_blockdev_handle_t *bdl_handle)
 {
     const spi_bus_config_t bus_config = {
         .mosi_io_num = PIN_MOSI,
@@ -80,15 +80,17 @@ static void example_init_nand_flash(spi_nand_flash_device_t **out_handle, spi_de
         .flags = spi_flags
     };
     spi_nand_flash_device_t *nand_flash_device_handle;
-    ESP_ERROR_CHECK(spi_nand_flash_init_device(&nand_flash_config, &nand_flash_device_handle));
+    esp_blockdev_handle_t bdl;
+    ESP_ERROR_CHECK(spi_nand_flash_get_blockdev(&nand_flash_config, &nand_flash_device_handle, &bdl));
 
     *out_handle = nand_flash_device_handle;
     *spi_handle = spi;
+    *bdl_handle = bdl;
 }
 
-static void example_deinit_nand_flash(spi_nand_flash_device_t *flash, spi_device_handle_t spi)
+static void example_deinit_nand_flash(spi_nand_flash_device_t *flash, spi_device_handle_t spi, esp_blockdev_handle_t bdl_handle)
 {
-    ESP_ERROR_CHECK(spi_nand_flash_deinit_device(flash));
+    ESP_ERROR_CHECK(spi_nand_flash_release_blockdev(bdl_handle));
     ESP_ERROR_CHECK(spi_bus_remove_device(spi));
     ESP_ERROR_CHECK(spi_bus_free(HOST_ID));
 }
@@ -156,7 +158,8 @@ void app_main(void)
     // Set up SPI bus and initialize the external SPI Flash chip
     spi_device_handle_t spi;
     spi_nand_flash_device_t *flash;
-    example_init_nand_flash(&flash, &spi);
+    esp_blockdev_handle_t bdl_handle;
+    example_init_nand_flash(&flash, &spi, &bdl_handle);
     if (flash == NULL) {
         return;
     }
@@ -189,5 +192,5 @@ void app_main(void)
     ESP_LOGI(TAG, "ECC errors statistics:");
     ESP_ERROR_CHECK(nand_get_ecc_stats(flash));
 
-    example_deinit_nand_flash(flash, spi);
+    example_deinit_nand_flash(flash, spi, bdl_handle);
 }

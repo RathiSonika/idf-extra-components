@@ -5,7 +5,10 @@ issues: https://github.com/espressif/idf-extra-components/issues
 repository: https://github.com/espressif/idf-extra-components.git
 documentation: https://github.com/espressif/idf-extra-components/tree/main/spi_nand_flash/README.md
 dependencies:
-  idf: ">=5.0"
+  idf:
+    version : ">=5.0"
+    override_path: "../../esp-idf"
+    require: public
   dhara:
     version: "0.1.*"
     override_path: "../dhara"
