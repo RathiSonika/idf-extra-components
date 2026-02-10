@@ -194,6 +194,12 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
     }
     break;
 
+    case ESP_BLOCKDEV_CMD_COPY_PAGE: {
+        esp_blockdev_cmd_arg_copy_page_t *copy_cmd = (esp_blockdev_cmd_arg_copy_page_t *)args;
+        esp_err_t ret = nand_copy(dev, copy_cmd->src_page, copy_cmd->dst_page);
+        return ret;
+    }
+
     case ESP_BLOCKDEV_CMD_GET_ECC_STATS: {
         esp_blockdev_cmd_arg_ecc_stats_t *ecc_stats = (esp_blockdev_cmd_arg_ecc_stats_t *)args;
         spi_nand_flash_device_t *flash = (spi_nand_flash_device_t *)handle->ctx;

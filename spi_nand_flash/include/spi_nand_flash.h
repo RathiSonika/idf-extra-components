@@ -182,7 +182,6 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
 //---------------------------------------------------------------------------------------------------------------------------------------------
 
 #ifdef CONFIG_NAND_FLASH_ENABLE_BDL
-#include "esp_blockdev.h"
 
 /** @brief Initialize SPI NAND Flash with separate layer block devices
  *

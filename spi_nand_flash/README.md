@@ -65,6 +65,13 @@ At present, `spi_nand_flash` component is compatible with the chips produced by 
 * Zetta - ZD35Q1GC
 * XTX - XT26G08D
 
+## FATFS Integration
+
+For FATFS filesystem support, use the separate [`spi_nand_flash_vfs`](../spi_nand_flash_vfs) component:
+- Provides diskio adapters and VFS mount helpers
+- Supports both legacy API and BDL API
+- See [`spi_nand_flash_vfs/README.md`](../spi_nand_flash_vfs/README.md) for usage examples
+
 ## Troubleshooting
 
 To verify SPI NAND Flash writes, enable the `NAND_FLASH_VERIFY_WRITE` option in menuconfig. When this option is enabled, every time data is written to the SPI NAND Flash, it will be read back and verified. This helps in identifying hardware issues with the SPI NAND Flash.

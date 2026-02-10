@@ -144,6 +144,20 @@ extern "C" {
  */
 #define ESP_BLOCKDEV_CMD_GET_NAND_FLASH_INFO      (ESP_BLOCKDEV_CMD_USER_BASE + 5)
 
+/** @brief Copy a page from source to destination (Flash BDL only)
+ *
+ * Performs hardware-level page copy operation, preserving the copy optimization
+ * available in NAND flash devices. This is primarily used internally by the
+ * wear-leveling layer.
+ *
+ * Usage:
+ * @code
+ * esp_blockdev_cmd_arg_copy_page_t copy_cmd = { .src_page = 10, .dst_page = 20 };
+ * esp_err_t ret = flash_bdl->ops->ioctl(flash_bdl, ESP_BLOCKDEV_CMD_COPY_PAGE, &copy_cmd);
+ * @endcode
+ */
+#define ESP_BLOCKDEV_CMD_COPY_PAGE                (ESP_BLOCKDEV_CMD_USER_BASE + 6)
+
 /** @} */ // end of nand_ioctl_commands
 
 //=============================================================================
@@ -203,6 +217,17 @@ typedef struct {
     nand_device_info_t device_info;         /*!< Device identification (manufacturer, device ID, chip name) */
     nand_flash_geometry_t geometry;         /*!< Flash geometry (page size, block size, timing, etc.) */
 } esp_blockdev_cmd_arg_nand_flash_info_t;
+
+/**
+ * @brief Argument structure for page copy command
+ *
+ * Used with:
+ * - ESP_BLOCKDEV_CMD_COPY_PAGE
+ */
+typedef struct {
+    uint32_t src_page;    /*!< IN: Source page number */
+    uint32_t dst_page;    /*!< IN: Destination page number */
+} esp_blockdev_cmd_arg_copy_page_t;
 
 //=============================================================================
 // BLOCK DEVICE CREATION FUNCTIONS
