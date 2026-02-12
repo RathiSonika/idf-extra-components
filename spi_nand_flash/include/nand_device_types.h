@@ -61,6 +61,73 @@ typedef struct {
     char chip_name[32];                     /*!< Chip name string */
 } nand_device_info_t;
 
+#define NAND_PARAM_PAGE_SIGNATURE_LEN    4   /*!< Length of ONFI signature ("ONFI") */
+#define NAND_PARAM_PAGE_MANUFACTURER_LEN 12  /*!< Length of manufacturer name field */
+#define NAND_PARAM_PAGE_MODEL_LEN        20  /*!< Length of device model field */
+#define NAND_PARAM_PAGE_SIZE             256 /*!< Size of one parameter page copy in bytes */
+#define NAND_PARAM_PAGE_COPIES           3   /*!< Number of redundant parameter page copies */
+
+/** @brief ONFI Parameter Page structure (256 bytes)
+ *
+ * This structure maps the ONFI-compatible parameter page that describes the
+ * chip's organization, features, timing and other behavioral parameters.
+ */
+typedef struct __attribute__((packed))
+{
+    /* Revision information (bytes 0-9) */
+    uint8_t  signature[4];                  /*!< Bytes 0-3: Parameter page signature "ONFI" */
+    uint16_t revision;                      /*!< Bytes 4-5: Revision number */
+    uint16_t features;                      /*!< Bytes 6-7: Features supported */
+    uint16_t reserved_8;                    /*!< Bytes 8-9: Reserved */
+
+    uint8_t  reserved_10_31[22];            /*!< Bytes 10-31: Reserved */
+
+    /* Manufacturer information block (bytes 32-79) */
+    char     manufacturer[12];              /*!< Bytes 32-43: Device manufacturer (ASCII) */
+    char     model[20];                     /*!< Bytes 44-63: Device model (ASCII) */
+    uint8_t  jedec_id;                      /*!< Byte 64: JEDEC manufacturer ID */
+    uint16_t date_code;                     /*!< Bytes 65-66: Date code */
+    uint8_t  reserved_67_79[13];            /*!< Bytes 67-79: Reserved */
+
+    /* Memory organization block (bytes 80-127) */
+    uint32_t data_bytes_per_page;           /*!< Bytes 80-83: Number of data bytes per page */
+    uint16_t spare_bytes_per_page;          /*!< Bytes 84-85: Number of spare bytes per page */
+    uint32_t data_bytes_per_partial;        /*!< Bytes 86-89: Number of data bytes per partial page */
+    uint16_t spare_bytes_per_partial;       /*!< Bytes 90-91: Number of spare bytes per partial page */
+    uint32_t pages_per_block;               /*!< Bytes 92-95: Number of pages per block */
+    uint32_t blocks_per_lun;                /*!< Bytes 96-99: Number of blocks per logical unit */
+    uint8_t  num_luns;                      /*!< Byte 100: Number of logical units */
+    uint8_t  reserved_101;                  /*!< Byte 101: Reserved */
+    uint8_t  bits_per_cell;                 /*!< Byte 102: Number of bits per cell */
+    uint16_t max_bad_blocks_per_lun;        /*!< Bytes 103-104: Bad blocks maximum per LUN */
+    uint16_t block_endurance;               /*!< Bytes 105-106: Block endurance */
+    uint8_t  guaranteed_valid_blocks;       /*!< Byte 107: Guaranteed valid blocks at beginning */
+    uint16_t guaranteed_block_endurance;    /*!< Bytes 108-109: Block endurance for guaranteed valid blocks */
+    uint8_t  programs_per_page;             /*!< Byte 110: Number of programs per page */
+    uint8_t  partial_prog_attr;             /*!< Byte 111: Partial programming attributes */
+    uint8_t  ecc_correctability;            /*!< Byte 112: Number of bits ECC correctability */
+    uint8_t  interleaved_addr_bits;         /*!< Byte 113: Number of interleaved address bits */
+    uint8_t  interleaved_op_attr;           /*!< Byte 114: Interleaved operation attributes */
+    uint8_t  reserved_115_127[13];          /*!< Bytes 115-127: Reserved */
+
+    /* Electrical parameters block (bytes 128-163) */
+    uint8_t  io_capacitance;                /*!< Byte 128: I/O capacitance */
+    uint16_t io_clock_support;              /*!< Bytes 129-130: I/O clock support */
+    uint16_t reserved_131_132;              /*!< Bytes 131-132: Reserved */
+    uint16_t t_prog_max_us;                 /*!< Bytes 133-134: Maximum page program time (us) */
+    uint16_t t_bers_max_us;                 /*!< Bytes 135-136: Maximum block erase time (us) */
+    uint16_t t_r_max_us;                    /*!< Bytes 137-138: Maximum page read time (us) */
+    uint16_t reserved_139_140;              /*!< Bytes 139-140: Reserved */
+    uint8_t  reserved_141_163[23];          /*!< Bytes 141-163: Reserved */
+
+    /* Vendor block (bytes 164-253) */
+    uint16_t vendor_revision;               /*!< Bytes 164-165: Vendor specific revision number */
+    uint8_t  vendor_specific[88];           /*!< Bytes 166-253: Vendor specific data */
+
+    /* Integrity (bytes 254-255) */
+    uint16_t crc;                           /*!< Bytes 254-255: Integrity CRC-16 */
+} nand_parameter_page_t;
+
 #ifdef __cplusplus
 }
 #endif
