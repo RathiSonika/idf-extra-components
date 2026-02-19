@@ -355,3 +355,54 @@ esp_err_t spi_nand_erase_block(spi_nand_flash_device_t *handle, uint32_t page)
 
     return spi_nand_execute_transaction(handle, &t);
 }
+
+esp_err_t spi_nand_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t length)
+{
+    esp_err_t ret = ESP_OK;
+    uint8_t orig_config = 0;
+
+    // Step 1: Read current REG_CONFIG (0xB0) value and save it
+    ret = spi_nand_read_register(handle, REG_CONFIG, &orig_config);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // Step 2: Set OTP_EN bit to access the OTP/parameter page area
+    uint8_t new_config = orig_config | REG_CONFIG_OTP_EN;
+    ret = spi_nand_write_register(handle, REG_CONFIG, new_config);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // Step 3: Issue PAGE READ (0x13) to row address 0x000004 (parameter page location)
+    spi_nand_transaction_t t = {
+        .command = CMD_PAGE_READ,
+        .address_bytes = 3,
+        .address = PARAM_PAGE_ROW_ADDR,
+    };
+    ret = spi_nand_execute_transaction(handle, &t);
+    if (ret != ESP_OK) {
+        goto restore;
+    }
+
+    // Step 4: Poll REG_STATUS until device is not busy (OIP = 0)
+    while (true) {
+        uint8_t status;
+        ret = spi_nand_read_register(handle, REG_STATUS, &status);
+        if (ret != ESP_OK) {
+            goto restore;
+        }
+        if ((status & STAT_BUSY) == 0) {
+            break;
+        }
+    }
+
+    // Step 5: Read data from cache at column address 0
+    ret = spi_nand_read(handle, data, 0, length);
+
+restore:
+    // Step 6: Restore original REG_CONFIG value (clear OTP_EN)
+    spi_nand_write_register(handle, REG_CONFIG, orig_config);
+
+    return ret;
+}

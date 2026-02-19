@@ -34,7 +34,7 @@ esp_err_t spi_nand_gigadevice_init(spi_nand_flash_device_t *dev)
     case GIGADEVICE_DI_21:
         dev->chip.num_blocks = 1024;
         break;
-    case GIGADEVICE_DI_52:
+//    case GIGADEVICE_DI_52:
     case GIGADEVICE_DI_42:
     case GIGADEVICE_DI_32:
     case GIGADEVICE_DI_22:
@@ -51,7 +51,8 @@ esp_err_t spi_nand_gigadevice_init(spi_nand_flash_device_t *dev)
         dev->chip.num_blocks = 4096;
         break;
     default:
-        return ESP_ERR_INVALID_RESPONSE;
+        printf("%s:%s:%d\n", __FILE__, __func__, __LINE__);
+        return spi_nand_onfi_init(dev);
     }
     return ESP_OK;
 }

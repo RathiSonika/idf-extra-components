@@ -40,7 +40,7 @@ static esp_err_t detect_chip(spi_nand_flash_device_t *dev)
     case SPI_NAND_FLASH_XTX_MI: // XTX
         return spi_nand_xtx_init(dev);
     default:
-        return ESP_ERR_INVALID_RESPONSE;
+        return spi_nand_onfi_init(dev);
     }
 }
 
@@ -555,5 +555,88 @@ esp_err_t nand_get_ecc_status(spi_nand_flash_device_t *handle, uint32_t page)
 
 fail:
     ESP_LOGE(TAG, "Error in nand_is_ecc_error %d", ret);
+    return ret;
+}
+
+/**
+ * @brief Compute ONFI CRC-16 over a data buffer
+ *
+ * Polynomial: G(X) = X^16 + X^15 + X^2 + 1 (0x8005)
+ * Initial value: 0x4F4E
+ * No final XOR, no byte/bit reversal.
+ */
+static uint16_t nand_param_page_crc16(const uint8_t *data, size_t length)
+{
+    const uint16_t poly = 0x8005;
+    uint16_t crc = 0x4F4E;
+
+    for (size_t i = 0; i < length; i++) {
+        crc ^= ((uint16_t)data[i] << 8);
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ poly;
+            } else {
+                crc = crc << 1;
+            }
+        }
+    }
+    return crc;
+}
+
+static const uint8_t onfi_signature[NAND_PARAM_PAGE_SIGNATURE_LEN] = { 'O', 'N', 'F', 'I' };
+
+esp_err_t nand_read_parameter_page(spi_nand_flash_device_t *handle, nand_parameter_page_t *param_page)
+{
+    ESP_RETURN_ON_FALSE(handle != NULL && param_page != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Invalid argument: handle or param_page is NULL");
+
+    esp_err_t ret = ESP_OK;
+    const uint16_t total_len = NAND_PARAM_PAGE_SIZE * NAND_PARAM_PAGE_COPIES;
+
+    // Allocate DMA-capable buffer for all 3 redundant copies (768 bytes)
+    uint8_t *raw_buf = heap_caps_malloc(total_len, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    ESP_RETURN_ON_FALSE(raw_buf != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate parameter page buffer");
+
+    // Read all 3 copies of the parameter page from the chip
+    ret = spi_nand_read_parameter_page(handle, raw_buf, total_len);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read parameter page from chip: %d", ret);
+        goto done;
+    }
+
+    // Try each copy: validate ONFI signature and CRC-16
+    ret = ESP_ERR_INVALID_CRC;
+    for (int copy = 0; copy < NAND_PARAM_PAGE_COPIES; copy++) {
+        const uint8_t *page_data = raw_buf + (copy * NAND_PARAM_PAGE_SIZE);
+        const nand_parameter_page_t *candidate = (const nand_parameter_page_t *)page_data;
+
+        // Check "ONFI" signature
+        if (memcmp(candidate->signature, onfi_signature, NAND_PARAM_PAGE_SIGNATURE_LEN) != 0) {
+            ESP_LOGD(TAG, "Parameter page copy %d: invalid ONFI signature", copy);
+            continue;
+        }
+
+        // Validate CRC-16 over bytes 0-253, compare with bytes 254-255
+        uint16_t computed_crc = nand_param_page_crc16(page_data, NAND_PARAM_PAGE_SIZE - 2);
+        if (computed_crc != candidate->crc) {
+            ESP_LOGD(TAG, "Parameter page copy %d: CRC mismatch (computed=0x%04x, stored=0x%04x)",
+                     copy, computed_crc, candidate->crc);
+            continue;
+        }
+
+        // Valid copy found -- copy to output
+        memcpy(param_page, page_data, NAND_PARAM_PAGE_SIZE);
+        ESP_LOGD(TAG, "Parameter page copy %d: valid (manufacturer=%.12s, model=%.20s)",
+                 copy, param_page->manufacturer, param_page->model);
+        ret = ESP_OK;
+        break;
+    }
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "All %d parameter page copies failed validation", NAND_PARAM_PAGE_COPIES);
+    }
+
+done:
+    free(raw_buf);
     return ret;
 }
