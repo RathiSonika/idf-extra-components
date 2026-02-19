@@ -31,6 +31,13 @@ typedef struct spi_nand_flash_device_t spi_nand_flash_device_t;
 #include "nand_linux_mmap_emul.h"
 #endif
 
+/** @brief How the chip was detected (generic chip detection) */
+typedef enum {
+    SPI_NAND_CHIP_SOURCE_DATABASE = 0,     /*!< Known chip from driver database */
+    SPI_NAND_CHIP_SOURCE_ONFI,             /*!< Detected via ONFI parameter page */
+    SPI_NAND_CHIP_SOURCE_MANUAL            /*!< Configured via menuconfig */
+} spi_nand_chip_source_t;
+
 /** @brief SPI mode used for reading from SPI NAND Flash */
 typedef enum {
     SPI_NAND_IO_MODE_SIO = 0,
@@ -176,6 +183,14 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
  * @return ESP_OK on success, or a flash error code if the de-initialization failed.
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
+
+/** @brief Get the chip detection source (database, ONFI, or manual).
+ *
+ * @param handle The handle to the SPI nand flash chip.
+ * @param[out] source Detection source (SPI_NAND_CHIP_SOURCE_DATABASE / ONFI / MANUAL).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or source is NULL.
+ */
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *source);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API

@@ -6,9 +6,11 @@
 
 #include <string.h>
 #include "esp_check.h"
+#include "esp_log.h"
 #include "nand.h"
 #include "spi_nand_oper.h"
 #include "nand_flash_devices.h"
+#include "nand_device_types.h"
 
 static const char *TAG = "nand_onfi";
 
@@ -41,6 +43,11 @@ esp_err_t spi_nand_onfi_init(spi_nand_flash_device_t *dev)
     dev->chip.num_blocks = block_num;
     dev->chip.log2_ppb = log2_rightshift(param_page.pages_per_block);
     dev->chip.log2_page_size = log2_rightshift(param_page.data_bytes_per_page);
-    printf("%s:%s:%d\n", __FILE__, __func__, __LINE__);
+
+    dev->chip.flags |= SPI_NAND_CHIP_FLAG_GENERIC;
+    dev->chip_source = SPI_NAND_CHIP_SOURCE_ONFI;
+    ESP_LOGW(TAG, "Chip detected via ONFI parameter page");
+    ESP_LOGW(TAG, "Verify chip parameters before production use");
+
     return ESP_OK;
 }

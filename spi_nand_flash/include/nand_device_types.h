@@ -44,7 +44,7 @@ typedef struct {
     uint32_t erase_block_delay_us;          /*!< Erase block delay in microseconds */
     uint32_t program_page_delay_us;         /*!< Program page delay in microseconds */
     uint32_t num_planes;                    /*!< Number of planes in the flash */
-    uint32_t flags;                         /*!< Chip-specific flags */
+    uint32_t flags;                         /*!< Chip-specific flags (see NAND_FLAG_* and SPI_NAND_CHIP_FLAG_*) */
     nand_ecc_data_t ecc_data;              /*!< ECC configuration and status */
     uint8_t has_quad_enable_bit;           /*!< 1 if chip supports QIO/QOUT mode */
     uint8_t quad_enable_bit_pos;           /*!< Position of quad enable bit */

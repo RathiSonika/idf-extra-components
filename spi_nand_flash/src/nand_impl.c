@@ -77,6 +77,44 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
     return ret;
 }
 
+#if defined(CONFIG_SPI_NAND_GENERIC_MANUAL)
+static int log2_pow2(uint32_t n)
+{
+    int log2 = 0;
+    while (n > 1) {
+        n >>= 1;
+        log2++;
+    }
+    return log2;
+}
+
+static esp_err_t nand_manual_init(spi_nand_flash_device_t *dev)
+{
+    uint32_t page_size = CONFIG_SPI_NAND_GENERIC_PAGE_SIZE;
+    uint32_t ppb = CONFIG_SPI_NAND_GENERIC_PAGES_PER_BLOCK;
+    uint32_t blocks = CONFIG_SPI_NAND_GENERIC_BLOCKS;
+
+    if (page_size == 0 || ppb == 0 || blocks == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    dev->chip.log2_page_size = (uint8_t)log2_pow2(page_size);
+    dev->chip.log2_ppb = (uint8_t)log2_pow2(ppb);
+    dev->chip.num_blocks = blocks;
+    dev->chip.has_quad_enable_bit = 1;
+    dev->chip.quad_enable_bit_pos = 0;
+    dev->chip.read_page_delay_us = CONFIG_SPI_NAND_GENERIC_T_R_US;
+    dev->chip.program_page_delay_us = CONFIG_SPI_NAND_GENERIC_T_PROG_US;
+    dev->chip.erase_block_delay_us = CONFIG_SPI_NAND_GENERIC_T_BERS_US;
+    dev->chip.num_planes = 1;
+    dev->chip.flags |= SPI_NAND_CHIP_FLAG_GENERIC;
+    dev->chip_source = SPI_NAND_CHIP_SOURCE_MANUAL;
+    strncpy(dev->device_info.chip_name, "manual", sizeof(dev->device_info.chip_name) - 1);
+    dev->device_info.chip_name[sizeof(dev->device_info.chip_name) - 1] = '\0';
+    ESP_LOGW(TAG, "Chip configured via menuconfig - verify parameters");
+    return ESP_OK;
+}
+#endif /* CONFIG_SPI_NAND_GENERIC_MANUAL */
+
 esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
 {
     esp_err_t ret = ESP_OK;
@@ -96,7 +134,21 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.num_planes = 1;
     (*handle)->chip.flags = 0;
 
-    ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ret = detect_chip(*handle);
+    if (ret == ESP_OK) {
+        (*handle)->chip_source = SPI_NAND_CHIP_SOURCE_DATABASE;
+    } else {
+        ret = spi_nand_onfi_init(*handle);
+        if (ret != ESP_OK) {
+#if defined(CONFIG_SPI_NAND_GENERIC_MANUAL)
+            ret = nand_manual_init(*handle);
+#endif
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to detect nand chip (database, ONFI, and manual fallback failed)");
+                goto fail;
+            }
+        }
+    }
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
