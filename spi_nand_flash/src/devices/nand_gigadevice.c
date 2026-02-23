@@ -51,8 +51,7 @@ esp_err_t spi_nand_gigadevice_init(spi_nand_flash_device_t *dev)
         dev->chip.num_blocks = 4096;
         break;
     default:
-        printf("%s:%s:%d\n", __FILE__, __func__, __LINE__);
-        return spi_nand_onfi_init(dev);
+        return ESP_ERR_INVALID_RESPONSE;
     }
     return ESP_OK;
 }
