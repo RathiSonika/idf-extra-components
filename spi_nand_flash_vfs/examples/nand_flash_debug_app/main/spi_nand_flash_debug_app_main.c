@@ -11,6 +11,7 @@
 #include "esp_system.h"
 #include "soc/spi_pins.h"
 #include "spi_nand_flash.h"
+#include "spi_nand_flash_test_helpers.h"
 #include "nand_diag_api.h"
 #include "nand_private/nand_impl_wrap.h"
 #include "esp_log.h"
@@ -19,7 +20,6 @@
 #include "esp_heap_caps.h"
 
 #define EXAMPLE_FLASH_FREQ_KHZ      40000
-#define PATTERN_SEED    0x12345678
 
 static const char *TAG = "debug_app";
 
@@ -94,15 +94,6 @@ static void example_deinit_nand_flash(spi_nand_flash_device_t *flash, spi_device
     ESP_ERROR_CHECK(spi_bus_free(HOST_ID));
 }
 
-static void fill_buffer(uint32_t seed, uint8_t *dst, size_t count)
-{
-    srand(seed);
-    for (size_t i = 0; i < count; ++i) {
-        uint32_t val = rand();
-        memcpy(dst + i * sizeof(uint32_t), &val, sizeof(val));
-    }
-}
-
 static esp_err_t read_write_sectors_tp(spi_nand_flash_device_t *flash, uint32_t start_sec, uint16_t sec_count, bool get_raw_tp)
 {
     esp_err_t ret = ESP_OK;
@@ -120,7 +111,7 @@ static esp_err_t read_write_sectors_tp(spi_nand_flash_device_t *flash, uint32_t 
     temp_buf = (uint8_t *)heap_caps_malloc(sector_size, MALLOC_CAP_DMA);
     ESP_RETURN_ON_FALSE(temp_buf != NULL, ESP_ERR_NO_MEM, TAG, "nomem");
 
-    fill_buffer(PATTERN_SEED, pattern_buf, sector_size / sizeof(uint32_t));
+    spi_nand_flash_fill_buffer(pattern_buf, sector_size / sizeof(uint32_t));
 
     int64_t read_time = 0;
     int64_t write_time = 0;

@@ -173,7 +173,8 @@ extern "C" {
  */
 typedef struct {
     uint32_t num;               /*!< IN:  Block number or page number */
-    bool status;                /*!< OUT: Bad block status or page free status (true/false) */
+    bool status;                /*!< OUT: Bad block status (True: bad block or False: good block)
+                                  or Page free status (True: free page or False: occupied page)*/
 } esp_blockdev_cmd_arg_status_t;
 
 typedef esp_blockdev_cmd_arg_status_t esp_blockdev_cmd_arg_is_bad_block_t;

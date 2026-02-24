@@ -24,6 +24,7 @@
 #include "sdkconfig.h"
 #include "esp_blockdev.h"
 #include "esp_nand_blockdev.h"
+#include "spi_nand_flash_test_helpers.h"
 
 
 // Pin mapping
@@ -47,8 +48,6 @@
 #define PIN_HD       SPI2_IOMUX_PIN_NUM_HD
 #define SPI_DMA_CHAN SPI_DMA_CH_AUTO
 #endif
-
-#define PATTERN_SEED    0x12345678
 
 static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_sec, uint16_t sec_count);
 static void setup_bus(spi_host_device_t host_id)
@@ -116,25 +115,6 @@ TEST_CASE("erase nand flash using block device interface [via dhara]", "[spi_nan
     deinit_nand_flash(spi, bdl_handle);
 }
 
-static void check_buffer(uint32_t seed, const uint8_t *src, size_t count)
-{
-    srand(seed);
-    for (size_t i = 0; i < count; ++i) {
-        uint32_t val;
-        memcpy(&val, src + i * sizeof(uint32_t), sizeof(val));
-        TEST_ASSERT_EQUAL_HEX32(rand(), val);
-    }
-}
-
-static void fill_buffer(uint32_t seed, uint8_t *dst, size_t count)
-{
-    srand(seed);
-    for (size_t i = 0; i < count; ++i) {
-        uint32_t val = rand();
-        memcpy(dst + i * sizeof(uint32_t), &val, sizeof(val));
-    }
-}
-
 static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_sec, uint16_t sec_count)
 {
     uint8_t *temp_buf = NULL;
@@ -151,7 +131,7 @@ static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_sec, 
     temp_buf = (uint8_t *)heap_caps_malloc(sector_size, MALLOC_CAP_DEFAULT);
     TEST_ASSERT_NOT_NULL(temp_buf);
 
-    fill_buffer(PATTERN_SEED, pattern_buf, sector_size / sizeof(uint32_t));
+    spi_nand_flash_fill_buffer(pattern_buf, sector_size / sizeof(uint32_t));
 
     int64_t read_time = 0;
     int64_t write_time = 0;
@@ -167,7 +147,7 @@ static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_sec, 
         bdl->ops->read(bdl, temp_buf, sector_size, i * sector_size, sector_size);
         read_time += esp_timer_get_time() - start;
 
-        check_buffer(PATTERN_SEED, temp_buf, sector_size / sizeof(uint32_t));
+        TEST_ASSERT_EQUAL(0, spi_nand_flash_check_buffer(temp_buf, sector_size / sizeof(uint32_t)));
     }
     free(pattern_buf);
     free(temp_buf);
@@ -228,25 +208,26 @@ static void test_nand_operations(spi_nand_flash_io_mode_t mode, uint8_t flags)
     uint8_t *temp_buf = (uint8_t *)heap_caps_malloc(sector_size, MALLOC_CAP_DEFAULT);
     TEST_ASSERT_NOT_NULL(temp_buf);
 
-    fill_buffer(PATTERN_SEED, pattern_buf, sector_size / sizeof(uint32_t));
+    spi_nand_flash_fill_buffer(pattern_buf, sector_size / sizeof(uint32_t));
 
     uint32_t src_block = 20;
     uint32_t test_page = src_block * (block_size / sector_size); //(block_num * pages_per_block)
     TEST_ESP_OK(bdl_handle->ops->erase(bdl_handle, src_block * block_size, block_size));
-    if (test_page < sector_num) {
-        // Verify if test_page is free
-        esp_blockdev_cmd_arg_is_free_page_t page_free_status = {test_page, true};
-        TEST_ESP_OK(bdl_handle->ops->ioctl(bdl_handle, ESP_BLOCKDEV_CMD_IS_FREE_PAGE, &page_free_status));
-        TEST_ASSERT_TRUE(page_free_status.status == true);
-        // Write/program test_page
-        TEST_ESP_OK(bdl_handle->ops->write(bdl_handle, pattern_buf, test_page * sector_size, sector_size));
-        // Verify if test_page is used/programmed
-        TEST_ESP_OK(bdl_handle->ops->ioctl(bdl_handle, ESP_BLOCKDEV_CMD_IS_FREE_PAGE, &page_free_status));
-        TEST_ASSERT_TRUE(page_free_status.status == false);
-        // read test_page and verify with pattern_buf
-        TEST_ESP_OK(bdl_handle->ops->read(bdl_handle, temp_buf, sector_size, test_page * sector_size, sector_size));
-        check_buffer(PATTERN_SEED, temp_buf, sector_size / sizeof(uint32_t));
-    }
+    TEST_ASSERT_TRUE(test_page < sector_num);
+
+    // Verify if test_page is free
+    esp_blockdev_cmd_arg_is_free_page_t page_free_status = {test_page, true};
+    TEST_ESP_OK(bdl_handle->ops->ioctl(bdl_handle, ESP_BLOCKDEV_CMD_IS_FREE_PAGE, &page_free_status));
+    TEST_ASSERT_TRUE(page_free_status.status == true);
+    // Write/program test_page
+    TEST_ESP_OK(bdl_handle->ops->write(bdl_handle, pattern_buf, test_page * sector_size, sector_size));
+    // Verify if test_page is used/programmed
+    TEST_ESP_OK(bdl_handle->ops->ioctl(bdl_handle, ESP_BLOCKDEV_CMD_IS_FREE_PAGE, &page_free_status));
+    TEST_ASSERT_TRUE(page_free_status.status == false);
+    // read test_page and verify with pattern_buf
+    TEST_ESP_OK(bdl_handle->ops->read(bdl_handle, temp_buf, sector_size, test_page * sector_size, sector_size));
+    TEST_ASSERT_EQUAL(0, spi_nand_flash_check_buffer(temp_buf, sector_size / sizeof(uint32_t)));
+
     free(pattern_buf);
     free(temp_buf);
     deinit_nand_flash(spi, bdl_handle);
@@ -277,18 +258,17 @@ TEST_CASE("verify mark_bad_block works with bdl interface", "[spi_nand_flash]")
     uint32_t block_num = nand_bdl->geometry.disk_size / block_size;
 
     uint32_t test_block = 15;
-    if (test_block < block_num) {
-        TEST_ESP_OK(nand_bdl->ops->erase(nand_bdl, test_block * block_size, block_size));
-        // Verify if test_block is not bad block
-        esp_blockdev_cmd_arg_is_bad_block_t bad_block_status = {test_block, false};
-        TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_IS_BAD_BLOCK, &bad_block_status));
-        TEST_ASSERT_TRUE(bad_block_status.status == false);
-        // mark test_block as a bad block
-        TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_MARK_BAD_BLOCK, &test_block));
-        // Verify if test_block is marked as bad block
-        TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_IS_BAD_BLOCK, &bad_block_status));
-        TEST_ASSERT_TRUE(bad_block_status.status == true);
-    }
+    TEST_ASSERT_TRUE(test_block < block_num);
+    TEST_ESP_OK(nand_bdl->ops->erase(nand_bdl, test_block * block_size, block_size));
+    // Verify if test_block is not bad block
+    esp_blockdev_cmd_arg_is_bad_block_t bad_block_status = {test_block, false};
+    TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_IS_BAD_BLOCK, &bad_block_status));
+    TEST_ASSERT_TRUE(bad_block_status.status == false);
+    // mark test_block as a bad block
+    TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_MARK_BAD_BLOCK, &test_block));
+    // Verify if test_block is marked as bad block
+    TEST_ESP_OK(nand_bdl->ops->ioctl(nand_bdl, ESP_BLOCKDEV_CMD_IS_BAD_BLOCK, &bad_block_status));
+    TEST_ASSERT_TRUE(bad_block_status.status == true);
 
     deinit_nand_flash(spi, nand_bdl);
 }
