@@ -1,8 +1,14 @@
 idf_build_get_property(target IDF_TARGET)
 
 set(reqs)
+set(priv_reqs)
 set(inc include)
 set(priv_inc priv_include)
+
+if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" GREATER_EQUAL "6.0")
+    list(APPEND priv_reqs esp_blockdev esp_blockdev_util)
+endif()
+
 set(srcs "src/nand.c"
          "src/dhara_glue.c"
          "src/nand_impl_wrap.c")
@@ -31,7 +37,7 @@ else()
                      "src/spi_nand_flash_test_helpers.c"
                      "src/spi_nand_oper.c")
     
-    set(priv_reqs esp_mm)
+    list(APPEND priv_reqs esp_mm)
     
     if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER "5.3")
         list(APPEND reqs esp_driver_spi)
