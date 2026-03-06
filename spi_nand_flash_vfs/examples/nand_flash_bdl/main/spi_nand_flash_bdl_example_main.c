@@ -7,11 +7,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "esp_system.h"
 #include "soc/spi_pins.h"
 #include "esp_vfs_fat_nand.h"
 #include "esp_nand_blockdev.h"
+#include "esp_nand_partition.h"
 
 #define EXAMPLE_FLASH_FREQ_KHZ      40000
 
@@ -39,14 +41,58 @@ static const char *TAG = "example_bdl";
 #define SPI_DMA_CHAN SPI_DMA_CH_AUTO
 #endif
 
-// Mount path for the partition
-const char *base_path = "/nand";
+static const char *mount_part1 = "/part1";
+static const char *mount_part2 = "/part2";
+
+static esp_err_t test_partition_io_write(const char *mount_path, const char *partition_name)
+{
+    char filepath[64];
+    snprintf(filepath, sizeof(filepath), "%s/test_%s.txt", mount_path, partition_name);
+
+    ESP_LOGI(TAG, "[%s] Writing file: %s", partition_name, filepath);
+    FILE *f = fopen(filepath, "wb");
+    if (!f) {
+        ESP_LOGE(TAG, "[%s] Failed to open file for writing", partition_name);
+        return ESP_FAIL;
+    }
+    fprintf(f, "Hello from partition '%s' (IDF %s)\n", partition_name, esp_get_idf_version());
+    fclose(f);
+
+    return ESP_OK;
+}
+static esp_err_t test_partition_io_read(const char *mount_path, const char *partition_name)
+{
+    char filepath[64];
+    snprintf(filepath, sizeof(filepath), "%s/test_%s.txt", mount_path, partition_name);
+
+    ESP_LOGI(TAG, "[%s] Reading file back", partition_name);
+    FILE *f = fopen(filepath, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "[%s] Failed to open file for reading", partition_name);
+        return ESP_FAIL;
+    }
+    char line[128];
+    fgets(line, sizeof(line), f);
+    fclose(f);
+
+    char *pos = strchr(line, '\n');
+    if (pos) {
+        *pos = '\0';
+    }
+    ESP_LOGI(TAG, "[%s] Read: '%s'", partition_name, line);
+
+    return ESP_OK;
+}
 
 void app_main(void)
 {
     esp_err_t ret;
     spi_device_handle_t spi = NULL;
     esp_blockdev_handle_t wl_bdl = NULL;
+    esp_blockdev_handle_t part1_bdl = NULL;
+    esp_blockdev_handle_t part2_bdl = NULL;
+    bool part1_mounted = false;
+    bool part2_mounted = false;
 
     // Initialize SPI bus
     const spi_bus_config_t bus_config = {
@@ -72,12 +118,12 @@ void app_main(void)
 
     ESP_ERROR_CHECK(spi_bus_add_device(HOST_ID, &devcfg, &spi));
 
-    // Create Flash Block Device Layer (this will initialize the device)
+    // Create Flash + WL block device stack
     spi_nand_flash_config_t config = {
         .device_handle = spi,
         .io_mode = SPI_NAND_IO_MODE_SIO,
         .flags = spi_flags,
-        .gc_factor = 4,  // Wear leveling GC factor
+        .gc_factor = 4,
     };
 
     ret = spi_nand_flash_init_with_layers(&config, &wl_bdl);
@@ -86,7 +132,47 @@ void app_main(void)
         goto cleanup;
     }
 
-    // Mount FATFS using BDL
+    // Calculate partition sizes from actual disk geometry
+    uint64_t disk_size = wl_bdl->geometry.disk_size;
+    size_t erase_size = wl_bdl->geometry.erase_size;
+
+    ESP_LOGI(TAG, "WL disk: %" PRIu64 " bytes, erase_size: %zu",
+             disk_size, erase_size);
+
+    // Register two partitions on the WL block device
+    spi_nand_partition_config_t partitions[] = {
+        {
+            .name = "data1",
+            .offset = 0,
+            .size = 100 * 1024 * 1024,
+        },
+        {
+            .name = "data2",
+            .offset = 120 * 1024 * 1024,
+            .size =  8 * 1024 * 1024,
+        },
+    };
+
+    ret = spi_nand_flash_register_partitions(wl_bdl, partitions, 2);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register partitions: %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+
+    // Obtain partition handles from the driver
+    ret = spi_nand_flash_get_partition(wl_bdl, "data1", &part1_bdl);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get partition 'data1': %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+
+    ret = spi_nand_flash_get_partition(wl_bdl, "data2", &part2_bdl);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get partition 'data2': %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+
+    // Mount FAT on each partition independently
     esp_vfs_fat_mount_config_t mount_config = {
         .max_files = 4,
 #ifdef CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED
@@ -94,67 +180,96 @@ void app_main(void)
 #else
         .format_if_mount_failed = false,
 #endif
-        .allocation_unit_size = 16 * 1024
+        .allocation_unit_size = 16 * 1024,
     };
 
-    ret = esp_vfs_fat_nand_mount_bdl(base_path, wl_bdl, &mount_config);
+    ESP_LOGI(TAG, "Mounting partition 'data1' at %s", mount_part1);
+    ret = esp_vfs_fat_nand_mount_bdl(mount_part1, part1_bdl, &mount_config);
     if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem. "
-                     "If you want the flash memory to be formatted, set the CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
-        }
+        ESP_LOGE(TAG, "Failed to mount 'data1': %s", esp_err_to_name(ret));
         goto cleanup;
     }
+    part1_mounted = true;
+    ESP_LOGI(TAG, "Mounted partition 'data1' at %s", mount_part1);
 
-    // Print FAT FS size information
-    uint64_t bytes_total, bytes_free;
-    esp_vfs_fat_info(base_path, &bytes_total, &bytes_free);
-    ESP_LOGI(TAG, "FAT FS: %" PRIu64 " kB total, %" PRIu64 " kB free", bytes_total / 1024, bytes_free / 1024);
-
-    // Create a file in FAT FS
-    ESP_LOGI(TAG, "Opening file");
-    FILE *f = fopen("/nand/hello_bdl.txt", "wb");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for writing");
+    ESP_LOGI(TAG, "Mounting partition 'data2' at %s", mount_part2);
+    ret = esp_vfs_fat_nand_mount_bdl(mount_part2, part2_bdl, &mount_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount 'data2': %s", esp_err_to_name(ret));
         goto cleanup_fs;
     }
-    fprintf(f, "Written using ESP-IDF %s with BDL API\n", esp_get_idf_version());
-    fclose(f);
-    ESP_LOGI(TAG, "File written");
+    part2_mounted = true;
+    ESP_LOGI(TAG, "Mounted partition 'data2' at %s", mount_part2);
 
-    // Open file for reading
-    ESP_LOGI(TAG, "Reading file");
-    f = fopen("/nand/hello_bdl.txt", "rb");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for reading");
+    // Print filesystem info for both partitions
+    uint64_t total, free_space;
+    esp_vfs_fat_info(mount_part1, &total, &free_space);
+    ESP_LOGI(TAG, "'data1': %" PRIu64 " kB total, %" PRIu64 " kB free", total / 1024, free_space / 1024);
+
+    esp_vfs_fat_info(mount_part2, &total, &free_space);
+    ESP_LOGI(TAG, "'data2': %" PRIu64 " kB total, %" PRIu64 " kB free", total / 1024, free_space / 1024);
+
+    // Perform independent read/write on each partition
+    ret = test_partition_io_write(mount_part1, "data1");
+    if (ret != ESP_OK) {
         goto cleanup_fs;
     }
-    char line[128];
-    fgets(line, sizeof(line), f);
-    fclose(f);
-    // strip newline
-    char *pos = strchr(line, '\n');
-    if (pos) {
-        *pos = '\0';
-    }
-    ESP_LOGI(TAG, "Read from file: '%s'", line);
 
-    esp_vfs_fat_info(base_path, &bytes_total, &bytes_free);
-    ESP_LOGI(TAG, "FAT FS: %" PRIu64 " kB total, %" PRIu64 " kB free", bytes_total / 1024, bytes_free / 1024);
+    ret = test_partition_io_write(mount_part2, "data2");
+    if (ret != ESP_OK) {
+        goto cleanup_fs;
+    }
+
+    ret = test_partition_io_read(mount_part1, "data1");
+    if (ret != ESP_OK) {
+        goto cleanup_fs;
+    }
+
+    ret = test_partition_io_read(mount_part2, "data2");
+    if (ret != ESP_OK) {
+        goto cleanup_fs;
+    }
+    // Verify isolation: files on one partition must not be visible on the other
+    ESP_LOGI(TAG, "Verifying partition isolation...");
+    FILE *f = fopen("/part2/test_data1.txt", "rb");
+    if (f) {
+        fclose(f);
+        ESP_LOGE(TAG, "ISOLATION FAILURE: data1's file found on partition data2");
+    } else {
+        ESP_LOGI(TAG, "OK: data1's file is not accessible from partition data2");
+    }
+
+    f = fopen("/part1/test_data2.txt", "rb");
+    if (f) {
+        fclose(f);
+        ESP_LOGE(TAG, "ISOLATION FAILURE: data2's file found on partition data1");
+    } else {
+        ESP_LOGI(TAG, "OK: data2's file is not accessible from partition data1");
+    }
+
+    // Final filesystem info
+    esp_vfs_fat_info(mount_part1, &total, &free_space);
+    ESP_LOGI(TAG, "'data1' final: %" PRIu64 " kB total, %" PRIu64 " kB free", total / 1024, free_space / 1024);
+
+    esp_vfs_fat_info(mount_part2, &total, &free_space);
+    ESP_LOGI(TAG, "'data2' final: %" PRIu64 " kB total, %" PRIu64 " kB free", total / 1024, free_space / 1024);
 
 cleanup_fs:
-    // Unmount FATFS
-    esp_vfs_fat_nand_unmount_bdl(base_path, wl_bdl);
+    if (part2_mounted) {
+        esp_vfs_fat_nand_unmount_bdl(mount_part2, part2_bdl);
+    }
+    if (part1_mounted) {
+        esp_vfs_fat_nand_unmount_bdl(mount_part1, part1_bdl);
+    }
 
 cleanup:
-    // Release block device handles
     if (wl_bdl) {
-        wl_bdl->ops->release(wl_bdl);
+        if (spi_nand_flash_release_partitions(wl_bdl) == ESP_ERR_NOT_FOUND) {
+            wl_bdl->ops->release(wl_bdl);
+        }
     }
-    // Cleanup SPI bus
     if (spi) {
         ESP_ERROR_CHECK(spi_bus_remove_device(spi));
     }
     ESP_ERROR_CHECK(spi_bus_free(HOST_ID));
 }
-
