@@ -17,6 +17,10 @@ Many of the components in this repository are wrappers around third-party librar
 - [ESP Protocols](https://github.com/espressif/esp-protocols)
 - [ESP USB](https://github.com/espressif/esp-usb)
 
+## Forks
+
+If you use a personal fork, sync it regularly with [the upstream repository](https://github.com/espressif/idf-extra-components) before opening pull requests there. That limits merge noise and keeps CI expectations aligned with the main project.
+
 ## Contribution
 
 We welcome contributions to idf-extra-components repository!
