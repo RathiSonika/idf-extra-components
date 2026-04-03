@@ -4,6 +4,8 @@
 
 # ESP-IDF Extra Components
 
+> **Testing only:** This fork branch (`test_pr_automation`) exists only to exercise pull-request automation on a personal fork. It is not intended for merge into upstream.
+
 This repository is used to maintain various extra components for [ESP-IDF](https://github.com/espressif/esp-idf). These components can be installed from [ESP Component Registry](https://components.espressif.com/).
 
 Many of the components in this repository are wrappers around third-party libraries, such as zlib, libpng, etc. There are also various components developed by Espressif which don't currently fit into another repository (like [esp-protocols](https://github.com/espressif/esp-protocols), [esp-usb](https://github.com/espressif/esp-usb), [esp-iot-solution](https://github.com/espressif/esp-iot-solution), etc).
