@@ -1,0 +1,19 @@
+menu "Example Configuration"
+
+    config EXAMPLE_FORMAT_IF_MOUNT_FAILED
+        bool "Format the file system if mount failed"
+        default n
+        help
+            If this configuration is enabled, the example will format the file system
+            if it fails to mount the file system.
+
+    config EXAMPLE_FORMAT_BEFORE_MOUNT
+        bool "Always format the NAND volume before mount (esp_vfs_fat_format_drive)"
+        default n
+        help
+            Registers the BDL with FatFS diskio, calls esp_vfs_fat_format_drive(), unregisters,
+            then mounts with esp_vfs_fat_bdl_mount(). This erases existing data on every boot.
+            Requires fatfs internal header vfs_fat_internal.h
+
+endmenu
+
