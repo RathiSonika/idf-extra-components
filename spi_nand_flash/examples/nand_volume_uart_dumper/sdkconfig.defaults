@@ -1,0 +1,19 @@
+# BDL + Dhara wear-level path (ESP-IDF >= 6.0)
+CONFIG_NAND_FLASH_ENABLE_BDL=y
+
+# Skip all-0xFF chunks on UART (smaller/faster transfer; host still builds full image)
+CONFIG_EXAMPLE_DUMP_SPARSE_FF=y
+
+# Batched blockdev reads before UART (see main/Kconfig.projbuild)
+CONFIG_EXAMPLE_DUMP_READ_CHUNK_PAGES=64
+CONFIG_EXAMPLE_DUMP_IOCTL_SKIP_UNMAPPED=y
+
+# Console baud (UART0); dump port baud is set in firmware from Kconfig
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_EXAMPLE_DUMP_UART_BAUD=115200
+
+# Long sequential reads: give the main task more time before TWDT fires
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_EXAMPLE_DUMP_UART_PORT_NUM=0
+CONFIG_EXAMPLE_DUMP_UART_TX_PIN=1
+CONFIG_EXAMPLE_DUMP_UART_RX_PIN=3

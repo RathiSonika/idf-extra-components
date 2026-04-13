@@ -1,0 +1,45 @@
+menu "NAND volume dumper"
+
+    config EXAMPLE_DUMP_UART_PORT_NUM
+        int "UART port number for binary dump (0 or 1)"
+        range 0 2
+        default 1
+        help
+            UART used for the binary dump stream and handshake.
+            Use **0** with TX/RX GPIOs matching your board (ESP32: usually GPIO1/3) when that UART is the same as
+            `CONFIG_ESP_CONSOLE_UART_NUM` (typical UART0 = same cable as `idf.py flash`). The app calls
+            `esp_stdio_uninstall_io_driver()` in that case — do not run `idf.py monitor` on that port while dumping.
+            Keep default **1** if you want UART0 free for monitor while dumping on UART1.
+
+    config EXAMPLE_DUMP_UART_BAUD
+        int "UART baud rate for dump"
+        default 921600
+        help
+            Higher baud (921600) greatly reduces transfer time. Use 115200 if the link is unreliable.
+
+    config EXAMPLE_DUMP_READ_CHUNK_PAGES
+        int "Logical pages read per block device read (batching)"
+        range 1 128
+        default 64
+        help
+            Read this many logical pages in one esp_blockdev read, then emit UART records for that buffer.
+            Larger values speed up NAND + UART (capped in code to ~256 KiB buffer). Lower if RAM is tight.
+
+    config EXAMPLE_DUMP_UART_TX_PIN
+        int "UART TX GPIO (dump port)"
+        default 17
+
+    config EXAMPLE_DUMP_UART_RX_PIN
+        int "UART RX GPIO (dump port, for handshake)"
+        default 18
+
+    config EXAMPLE_DUMP_SPARSE_FF
+        bool "Sparse UART transfer: skip all-0xFF logical chunks"
+        default y
+        help
+            When enabled, the device sends SKIP/DATA records instead of one raw stream. Chunks that read
+            as all 0xFF (typical erased NAND) are not sent as payload. The host script still builds a
+            full disk_size image (holes filled with 0xFF) for tools like fatfsparse.py.
+            Disable for a legacy contiguous binary stream (header magic NDLV).
+
+endmenu

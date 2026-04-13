@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
+
+cmake_minimum_required(VERSION 3.16)
+
+# The spi_nand_flash component root (directory with its own CMakeLists.txt), not the whole repo
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(nand_volume_uart_dumper)
