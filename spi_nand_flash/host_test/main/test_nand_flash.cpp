@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sdkconfig.h"
+
 #include "spi_nand_flash.h"
 #include "spi_nand_flash_test_helpers.h"
 #include "nand_linux_mmap_emul.h"
@@ -87,3 +89,92 @@ TEST_CASE("verify nand_prog, nand_read, nand_copy, nand_is_free works", "[spi_na
     free(temp_buf);
     spi_nand_flash_deinit_device(device_handle);
 }
+
+#ifdef CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+
+TEST_CASE("experimental OOB layout: nand_wrap cross-block copy marks dst used", "[spi_nand_flash][oob_layout]")
+{
+    nand_file_mmap_emul_config_t conf = {"", 50 * 1024 * 1024, false};
+    spi_nand_flash_config_t nand_flash_config = {&conf, 0, SPI_NAND_IO_MODE_SIO, 0};
+    spi_nand_flash_device_t *dev = nullptr;
+    REQUIRE(spi_nand_flash_init_device(&nand_flash_config, &dev) == ESP_OK);
+
+    uint32_t sector_size = 0;
+    uint32_t block_size = 0;
+    uint32_t sector_num = 0;
+    REQUIRE(spi_nand_flash_get_sector_size(dev, &sector_size) == ESP_OK);
+    REQUIRE(spi_nand_flash_get_block_size(dev, &block_size) == ESP_OK);
+    REQUIRE(spi_nand_flash_get_capacity(dev, &sector_num) == ESP_OK);
+
+    uint32_t ppb = block_size / sector_size;
+    uint32_t src_page = 9 * ppb;
+    uint32_t dst_page = 10 * ppb;
+    REQUIRE(dst_page < sector_num);
+
+    REQUIRE(nand_wrap_erase_block(dev, 9) == ESP_OK);
+    REQUIRE(nand_wrap_erase_block(dev, 10) == ESP_OK);
+
+    uint8_t *pattern_buf = (uint8_t *)malloc(sector_size);
+    uint8_t *temp_buf = (uint8_t *)malloc(sector_size);
+    REQUIRE(pattern_buf != nullptr);
+    REQUIRE(temp_buf != nullptr);
+    spi_nand_flash_fill_buffer(pattern_buf, sector_size / sizeof(uint32_t));
+
+    REQUIRE(nand_wrap_prog(dev, src_page, pattern_buf) == ESP_OK);
+    REQUIRE(nand_wrap_copy(dev, src_page, dst_page) == ESP_OK);
+
+    REQUIRE(nand_wrap_read(dev, dst_page, 0, sector_size, temp_buf) == ESP_OK);
+    REQUIRE(spi_nand_flash_check_buffer(temp_buf, sector_size / sizeof(uint32_t)) == 0);
+
+    bool used = true;
+    REQUIRE(nand_wrap_is_free(dev, dst_page, &used) == ESP_OK);
+    REQUIRE(used == false);
+
+    free(pattern_buf);
+    free(temp_buf);
+    spi_nand_flash_deinit_device(dev);
+}
+
+TEST_CASE("experimental OOB layout: neighbor physical page stays free after nand_wrap prog", "[spi_nand_flash][oob_layout]")
+{
+    nand_file_mmap_emul_config_t conf = {"", 50 * 1024 * 1024, false};
+    spi_nand_flash_config_t nand_flash_config = {&conf, 0, SPI_NAND_IO_MODE_SIO, 0};
+    spi_nand_flash_device_t *dev = nullptr;
+    REQUIRE(spi_nand_flash_init_device(&nand_flash_config, &dev) == ESP_OK);
+
+    uint32_t sector_size = 0;
+    uint32_t block_size = 0;
+    uint32_t sector_num = 0;
+    REQUIRE(spi_nand_flash_get_sector_size(dev, &sector_size) == ESP_OK);
+    REQUIRE(spi_nand_flash_get_block_size(dev, &block_size) == ESP_OK);
+    REQUIRE(spi_nand_flash_get_capacity(dev, &sector_num) == ESP_OK);
+
+    uint32_t ppb = block_size / sector_size;
+    REQUIRE(ppb >= 2);
+
+    uint32_t blk = 14;
+    REQUIRE(nand_wrap_erase_block(dev, blk) == ESP_OK);
+
+    uint32_t p0 = blk * ppb;
+    uint32_t p1 = p0 + 1;
+    REQUIRE(p1 < sector_num);
+
+    bool f = false;
+    REQUIRE(nand_wrap_is_free(dev, p1, &f) == ESP_OK);
+    REQUIRE(f == true);
+
+    uint8_t *buf = (uint8_t *)malloc(sector_size);
+    REQUIRE(buf != nullptr);
+    spi_nand_flash_fill_buffer(buf, sector_size / sizeof(uint32_t));
+    REQUIRE(nand_wrap_prog(dev, p0, buf) == ESP_OK);
+
+    REQUIRE(nand_wrap_is_free(dev, p0, &f) == ESP_OK);
+    REQUIRE(f == false);
+    REQUIRE(nand_wrap_is_free(dev, p1, &f) == ESP_OK);
+    REQUIRE(f == true);
+
+    free(buf);
+    spi_nand_flash_deinit_device(dev);
+}
+
+#endif /* CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT */
