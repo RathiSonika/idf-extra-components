@@ -624,10 +624,28 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
         ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, copy_buf, dst_column_addr, handle->chip.page_size),
                           fail, TAG, "");
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+        /* Same marker composition as nand_prog (step 07): BBM good pattern + PAGE_USED written. */
+        {
+            const spi_nand_oob_layout_t *layout = handle->oob_layout;
+            ESP_GOTO_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, fail, TAG, "OOB layout not attached");
+            uint8_t *markers_dma = handle->temp_buffer;
+            memcpy(markers_dma, layout->bbm.good_pattern, layout->bbm.bbm_length);
+            spi_nand_oob_xfer_ctx_t ctx;
+            ESP_GOTO_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                              markers_dma, 4), fail, TAG, "");
+            static const uint8_t s_page_used_written[2] = { 0x00, 0x00 };
+            ESP_GOTO_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_written, sizeof(s_page_used_written)),
+                              fail, TAG, "");
+            ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, markers_dma,
+                                                    dst_column_addr + handle->chip.page_size, 4), fail, TAG, "");
+        }
+#else
         // Write 4 bytes: bad block marker (0xFFFF - good block) + page used marker (0x0000 - used)
         uint8_t markers[4] = { 0xFF, 0xFF, 0x00, 0x00 };
         ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (uint8_t *)&markers,
                                                 dst_column_addr + handle->chip.page_size, 4), fail, TAG, "");
+#endif
         ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
 
         if ((status & STAT_PROGRAM_FAILED) != 0) {
@@ -635,6 +653,11 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
             return ESP_ERR_NOT_FINISHED;
         }
         free(copy_buf);
+    } else {
+        /* Same-plane (fast) path: chip-internal page-move preserves the entire spare area
+         * byte-for-byte (openspec/configurable_oob_layout_proposal.md §7.0 invariant;
+         * openspec/RFC_SPI_NAND_OOB_LAYOUT.md). Do NOT add an OOB reprogram here — it would
+         * double-write OOB and change wire-level behavior for default and configurable layouts alike. */
     }
 
     ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
