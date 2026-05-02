@@ -353,9 +353,11 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
 {
     ESP_LOGV(TAG, "prog, page=%"PRIu32",", page);
     esp_err_t ret = ESP_OK;
+#if !CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
     // Markers layout: [bad_block_marker (bytes 0-1)][page_used_marker (bytes 2-3)]
     // For good block with used page: bad=0xFFFF, used=0x0000
     uint8_t markers[4] = { 0xFF, 0xFF, 0x00, 0x00 };
+#endif
     uint8_t status;
 
     uint32_t block = page >> handle->chip.log2_ppb;
@@ -365,9 +367,26 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, data, column_addr, handle->chip.page_size),
                       fail, TAG, "");
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    {
+        const spi_nand_oob_layout_t *layout = handle->oob_layout;
+        ESP_GOTO_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, fail, TAG, "OOB layout not attached");
+        uint8_t *markers_dma = handle->temp_buffer;
+        memcpy(markers_dma, layout->bbm.good_pattern, layout->bbm.bbm_length);
+        spi_nand_oob_xfer_ctx_t ctx;
+        ESP_GOTO_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                          markers_dma, 4), fail, TAG, "");
+        static const uint8_t s_page_used_written[2] = { 0x00, 0x00 };
+        ESP_GOTO_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_written, sizeof(s_page_used_written)),
+                          fail, TAG, "");
+        ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, markers_dma,
+                                                column_addr + handle->chip.page_size, 4), fail, TAG, "");
+    }
+#else
     // Write 4 bytes: bad block marker (0xFFFF - good block) + page used marker (0x0000 - used)
     ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (uint8_t *)&markers,
                                             column_addr + handle->chip.page_size, 4), fail, TAG, "");
+#endif
 
     ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, page, &status), fail, TAG, "");
 
@@ -381,7 +400,11 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "%s: prog page=%"PRIu32" write verification failed", __func__, page);
     }
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    ret = s_verify_write(handle, handle->temp_buffer, column_addr + handle->chip.page_size, 4);
+#else
     ret = s_verify_write(handle, (uint8_t *)&markers, column_addr + handle->chip.page_size, 4);
+#endif
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "%s: prog page=%"PRIu32" markers write verification failed", __func__, page);
     }
