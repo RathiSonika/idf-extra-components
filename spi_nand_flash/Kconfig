@@ -25,6 +25,21 @@ menu "SPI NAND Flash configuration"
             Note: This option requires ESP-IDF >= 6.0 (esp_blockdev component).
             Enabling this on ESP-IDF < 6.0 will result in a build error.
 
+    config NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+        bool "Experimental: configurable OOB layout"
+        default n
+        help
+            Experimental: gates configurable out-of-band (OOB) layout support (markers, BBM, spare
+            region mapping). When disabled (default), behavior matches the legacy fixed OOB marker
+            layout: 4 bytes at column offset page_size — bytes 0-1 BBM (0xFFFF = good), bytes 2-3
+            page-used (0xFFFF = free). See openspec/configurable_oob_layout_proposal.md section 1.2.
+
+            When enabled, later component releases wire per-chip layout tables and routing; with this
+            option alone there is no functional change yet.
+
+            Maintainer design and rollout: openspec/configurable_oob_layout_proposal.md and
+            openspec/changes/configurable-oob-layout/.
+
     config NAND_ENABLE_STATS
         bool "Host test statistics enabled"
         depends on IDF_TARGET_LINUX
