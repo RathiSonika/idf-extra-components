@@ -2,6 +2,13 @@
 
 Versioning policy: see [VERSIONING.md](VERSIONING.md). From **v1.0.0** onward this component follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added (experimental)
+
+- **Configurable OOB layout:** Kconfig option **`CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT`** (default **`n`**) enables layout-driven handling of bad-block and page-used markers (and related paths) inside `nand_impl.c` / `nand_impl_linux.c`. With the default **`n`**, behavior matches the pre-layout driver. With **`y`** and the built-in **default** layout tables for already-supported parts, on-flash marker bytes and column placement stay **byte-identical** to legacy behavior (see [openspec/configurable_oob_layout_proposal.md](openspec/configurable_oob_layout_proposal.md) §1.2). Non-default physical layouts and any promotion of layout APIs beyond `priv_include/` remain future work.
+- **CI / tests:** `test_app` and `host_test` presets exercising **`CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT=y`** are documented in [`test_app/README.md`](test_app/README.md) and [`host_test/README.md`](host_test/README.md).
+
 ## [1.0.2]
 ### Fixes
 - BDL error logging: correct format specifiers for size fields on 64-bit Linux (avoids undefined behavior and wrong log output).

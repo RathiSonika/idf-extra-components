@@ -62,6 +62,14 @@ For layered architecture, BDL usage, API details, and **upgrading from 0.x to 1.
 
 **Linux mmap emulation (host tests):** On the Linux target, the driver can use a memory-mapped backing file instead of SPI hardware. Configuration examples and how to build the host test app live in [`host_test/README.md`](host_test/README.md).
 
+### Experimental: configurable OOB layout
+
+Menuconfig option **`CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT`** (under SPI NAND Flash configuration) gates RFC-style **out-of-band (OOB)** layout handling for bad-block marks, page-used detection, and marker programming. It defaults to **`n`** so existing projects keep the original compiled behavior without changes.
+
+When set to **`y`**, the driver uses internal layout tables; for chips supported before this work, the **default** table reproduces the **same** on-flash marker pattern and offsets as the legacy path (no format migration for typical deployments). Alternate spare maps, public debug/raw-OOB APIs, and stabilizing the Kconfig default are **not** part of this experimental surface yet — see the design write-up [openspec/configurable_oob_layout_proposal.md](openspec/configurable_oob_layout_proposal.md) and the ordered implementation notes in [openspec/changes/configurable-oob-layout/README.md](openspec/changes/configurable-oob-layout/README.md).
+
+To build and test with the experimental option on hardware or Linux emulation, use the **`oob_layout`** / **`bdl_oob_layout`** presets and pytest flow described in [`test_app/README.md`](test_app/README.md) and the OOB-related CI notes in [`host_test/README.md`](host_test/README.md).
+
 ## Supported SPI NAND Flash chips
 
 At present, `spi_nand_flash` component is compatible with the chips produced by the following manufacturers and and their respective model numbers:

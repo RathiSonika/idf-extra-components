@@ -216,6 +216,8 @@ Mirrors the structure of `baseline.md` §11.3. These decisions are **not** open 
 | Q4 | Are **RFC public APIs** (`spi_nand_oob_field_read/write`, raw OOB) intended to be **stable** under `include/` or **internal/debug-only** for the first release? Stays **private** under `priv_include/` for this release; promotion is a separate change (see baseline §4.0 stability contract). |
 | Q8 | Relationship to **known bugs** queue ([`known-bugs.md`](known-bugs.md)): fix ordering vs OOB refactor (e.g. DMA/PSRAM follow-up 11.4.2). Step 05 adds **no new heap allocations** — new layout state lives inside the existing handle allocation, so when the §11.4.2 fix moves the handle to internal RAM the layout state moves with it for free. |
 
+**Tracked / follow-ups (step 12):** Q2 is addressed by the merged step plan (scatter/gather + fields together — see [`changes/configurable-oob-layout/README.md`](changes/configurable-oob-layout/README.md)). Q3, Q4, and Q8 remain **active follow-ups** (datasheet cap for max regions, public API promotion under baseline §4.0, DMA/PSRAM / handle placement ordering vs [`known-bugs.md`](known-bugs.md)); the explicit backlog lives in [`changes/configurable-oob-layout/step-12-docs-and-follow-ups.md`](changes/configurable-oob-layout/step-12-docs-and-follow-ups.md) §Goal item 3.
+
 ---
 
 ## Summary
