@@ -15,15 +15,33 @@
 
 #if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
 #include "nand_oob_device.h"
+#include "nand_oob_xfer.h"
 #endif
 
 static const char *TAG = "nand_linux";
 
+#if !CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
 /* OOB marker layout at page data offset `page_size` (matches nand_impl.c HW path):
  * bytes 0-1: bad-block marker (0xFFFF = good / erased, 0x0000 = bad)
  * bytes 2-3: page-used marker (0xFFFF = free, 0x0000 = used after program) */
 static const uint8_t s_oob_used_page_markers[4] = { 0xFF, 0xFF, 0x00, 0x00 };
 static const uint8_t s_oob_mark_bad_markers[4] = { 0x00, 0x00, 0xFF, 0xFF };
+#endif
+
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+/** @return true iff spare slice matches BBM good pattern at layout->bbm for bbm_length bytes. */
+static bool nand_oob_bbm_good(const spi_nand_oob_layout_t *layout, const uint8_t *oob_slice)
+{
+    uint16_t off = layout->bbm.bbm_offset;
+    uint16_t len = layout->bbm.bbm_length;
+    for (uint16_t i = 0; i < len; i++) {
+        if (oob_slice[off + i] != layout->bbm.good_pattern[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
 
 /* Start of erase block `block` in the mmap file: ppb slots of (data + OOB) per page. */
 static esp_err_t linux_mmap_block_file_offset(const spi_nand_flash_device_t *handle, uint32_t block, size_t *out_offset)
@@ -59,6 +77,21 @@ static esp_err_t detect_chip(spi_nand_flash_device_t *dev)
         dev->chip.emulated_page_oob = 128;
     }
     dev->chip.emulated_page_size = dev->chip.page_size + dev->chip.emulated_page_oob;
+
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    /* Attach layout before num_blocks: stride must reflect layout->oob_bytes when non-zero
+     * (step-10-linux-parity.md mmap stride). Default layout uses oob_bytes==0 → table above. */
+    ret = nand_oob_attach_default_layout(dev);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "OOB layout attach failed");
+        goto fail;
+    }
+    if (dev->oob_layout->oob_bytes != 0) {
+        dev->chip.emulated_page_oob = dev->oob_layout->oob_bytes;
+    }
+    dev->chip.emulated_page_size = dev->chip.page_size + dev->chip.emulated_page_oob;
+#endif
+
     /* chip.block_size: user-visible data per erase block (matches nand_impl.c / BDL).
      * File layout interleaves OOB after each page; use file_bytes_per_block for num_blocks
      * and linux_mmap_block_file_offset() for mmap byte addresses. */
@@ -127,9 +160,6 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
         ret = ESP_ERR_NO_MEM;
         goto fail;
     }
-#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
-    ESP_GOTO_ON_ERROR(nand_oob_attach_default_layout(*handle), fail, TAG, "OOB layout attach failed");
-#endif
     return ret;
 
 fail:
@@ -145,10 +175,42 @@ fail:
 
 esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t block, bool *is_bad_status)
 {
-    uint8_t markers[4];
     size_t block_offset = 0;
 
     ESP_RETURN_ON_ERROR(linux_mmap_block_file_offset(handle, block, &block_offset), TAG, "nand_is_bad: mmap block offset failed");
+
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_RETURN_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, TAG, "OOB layout not attached");
+    uint8_t pmask = layout->bbm.check_pages_mask;
+    ESP_RETURN_ON_FALSE(pmask != 0, ESP_ERR_INVALID_STATE, TAG, "BBM check_pages_mask empty");
+
+    uint32_t ppb = (uint32_t)(1u << handle->chip.log2_ppb);
+    bool is_bad = false;
+
+    if (pmask & (uint8_t)SPI_NAND_BBM_CHECK_FIRST_PAGE) {
+        uint8_t markers[4];
+        ESP_RETURN_ON_ERROR(nand_emul_read(handle, block_offset + handle->chip.page_size, markers, sizeof(markers)),
+                            TAG, "Error in nand_is_bad");
+        ESP_LOGD(TAG, "is_bad, block=%"PRIu32", file_off=%zu,indicator = %02x,%02x", block, block_offset, markers[0], markers[1]);
+        if (!nand_oob_bbm_good(layout, markers)) {
+            is_bad = true;
+        }
+    }
+    if (!is_bad && (pmask & (uint8_t)SPI_NAND_BBM_CHECK_LAST_PAGE)) {
+        uint8_t markers[4];
+        size_t page_oob_off = block_offset + (size_t)(ppb - 1) * (size_t)handle->chip.emulated_page_size +
+                              handle->chip.page_size;
+        ESP_RETURN_ON_ERROR(nand_emul_read(handle, page_oob_off, markers, sizeof(markers)),
+                            TAG, "Error in nand_is_bad");
+        if (!nand_oob_bbm_good(layout, markers)) {
+            is_bad = true;
+        }
+    }
+    *is_bad_status = is_bad;
+    return ESP_OK;
+#else
+    uint8_t markers[4];
 
     ESP_RETURN_ON_ERROR(nand_emul_read(handle, block_offset + handle->chip.page_size, markers, sizeof(markers)),
                         TAG, "Error in nand_is_bad");
@@ -156,6 +218,7 @@ esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t block, bool *is_
     ESP_LOGD(TAG, "is_bad, block=%"PRIu32", file_off=%zu,indicator = %02x,%02x", block, block_offset, markers[0], markers[1]);
     *is_bad_status = (markers[0] != 0xFF || markers[1] != 0xFF);
     return ESP_OK;
+#endif
 }
 
 esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
@@ -168,8 +231,26 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
     ESP_RETURN_ON_ERROR(linux_mmap_block_file_offset(handle, block, &block_base), TAG, "nand_mark_bad: mmap block offset failed");
     ESP_RETURN_ON_ERROR(nand_emul_erase_block(handle, block_base), TAG, "nand_mark_bad: erase failed");
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_RETURN_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, TAG, "OOB layout not attached");
+    uint8_t markers[4];
+    memset(markers, 0xFF, sizeof(markers));
+    for (unsigned i = 0; i < layout->bbm.bbm_length; i++) {
+        markers[layout->bbm.bbm_offset + i] = (uint8_t) ~layout->bbm.good_pattern[i];
+    }
+    spi_nand_oob_xfer_ctx_t ctx;
+    ESP_RETURN_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                        markers, sizeof(markers)), TAG, "nand_mark_bad: xfer ctx init failed");
+    static const uint8_t s_page_used_free[2] = { 0xFF, 0xFF };
+    ESP_RETURN_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_free, sizeof(s_page_used_free)),
+                        TAG, "nand_mark_bad: scatter failed");
+    ESP_RETURN_ON_ERROR(nand_emul_write(handle, block_base + handle->chip.page_size,
+                                        markers, sizeof(markers)), TAG, "nand_mark_bad: OOB marker write failed");
+#else
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, block_base + handle->chip.page_size,
                                         s_oob_mark_bad_markers, sizeof(s_oob_mark_bad_markers)), TAG, "nand_mark_bad: OOB marker write failed");
+#endif
 
     return ESP_OK;
 }
@@ -226,8 +307,23 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
     uint32_t data_offset = page * handle->chip.emulated_page_size;
 
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, data_offset, data, handle->chip.page_size), TAG, "Error in nand_prog %d", ret);
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_RETURN_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, TAG, "OOB layout not attached");
+    uint8_t markers[4];
+    memcpy(markers, layout->bbm.good_pattern, layout->bbm.bbm_length);
+    spi_nand_oob_xfer_ctx_t ctx;
+    ESP_RETURN_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                        markers, sizeof(markers)), TAG, "nand_prog: xfer ctx init failed");
+    static const uint8_t s_page_used_written[2] = { 0x00, 0x00 };
+    ESP_RETURN_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_written, sizeof(s_page_used_written)),
+                        TAG, "nand_prog: scatter failed");
+    ESP_RETURN_ON_ERROR(nand_emul_write(handle, data_offset + handle->chip.page_size,
+                                        markers, sizeof(markers)), TAG, "Error in nand_prog %d", ret);
+#else
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, data_offset + handle->chip.page_size,
                                         s_oob_used_page_markers, sizeof(s_oob_used_page_markers)), TAG, "Error in nand_prog %d", ret);
+#endif
 
     return ret;
 }
@@ -235,14 +331,26 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
 esp_err_t nand_is_free(spi_nand_flash_device_t *handle, uint32_t page, bool *is_free_status)
 {
     esp_err_t ret = ESP_OK;
-    uint8_t markers[4];
+    uint8_t raw_oob[4];
 
     ESP_RETURN_ON_ERROR(nand_emul_read(handle, page * handle->chip.emulated_page_size + handle->chip.page_size,
-                                       markers, sizeof(markers)),
+                                       raw_oob, sizeof(raw_oob)),
                         TAG, "Error in nand_is_free %d", ret);
 
-    ESP_LOGD(TAG, "is free, page=%"PRIu32", used_marker=%02x%02x,", page, markers[2], markers[3]);
-    *is_free_status = (markers[2] == 0xFF && markers[3] == 0xFF);
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_RETURN_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, TAG, "OOB layout not attached");
+    spi_nand_oob_xfer_ctx_t ctx;
+    ESP_RETURN_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                        raw_oob, sizeof(raw_oob)), TAG, "nand_is_free: xfer ctx init failed");
+    uint8_t marker[2];
+    ESP_RETURN_ON_ERROR(nand_oob_gather(&ctx, 0, marker, sizeof(marker)), TAG, "nand_is_free: gather failed");
+    ESP_LOGD(TAG, "is free, page=%"PRIu32", used_marker=%02x%02x,", page, marker[0], marker[1]);
+    *is_free_status = (marker[0] == 0xFF && marker[1] == 0xFF);
+#else
+    ESP_LOGD(TAG, "is free, page=%"PRIu32", used_marker=%02x%02x,", page, raw_oob[2], raw_oob[3]);
+    *is_free_status = (raw_oob[2] == 0xFF && raw_oob[3] == 0xFF);
+#endif
     return ret;
 }
 
@@ -269,8 +377,29 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
                         TAG, "Error in nand_copy %d", ret);
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset, (void *)handle->read_buffer, handle->chip.page_size),
                         TAG, "Error in nand_copy %d", ret);
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    /*
+     * Linux mmap has no chip-internal page-move: we always rewrite the OOB marker slice explicitly.
+     * Target nand_impl.c skips OOB reprogram on the same-plane fast path (proposal §7.0); the emulator
+     * cannot mirror that hardware shortcut without a full page (main+spare) memcpy. Marker bytes for
+     * the default layout remain identical to CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT=n.
+     */
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_RETURN_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, TAG, "OOB layout not attached");
+    uint8_t markers[4];
+    memcpy(markers, layout->bbm.good_pattern, layout->bbm.bbm_length);
+    spi_nand_oob_xfer_ctx_t ctx;
+    ESP_RETURN_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                        markers, sizeof(markers)), TAG, "nand_copy: xfer ctx init failed");
+    static const uint8_t s_page_used_written[2] = { 0x00, 0x00 };
+    ESP_RETURN_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_written, sizeof(s_page_used_written)),
+                        TAG, "nand_copy: scatter failed");
+    ESP_RETURN_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset + handle->chip.page_size,
+                                        markers, sizeof(markers)), TAG, "Error in nand_copy %d", ret);
+#else
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset + handle->chip.page_size,
                                         s_oob_used_page_markers, sizeof(s_oob_used_page_markers)), TAG, "Error in nand_copy %d", ret);
+#endif
 
     return ret;
 }
