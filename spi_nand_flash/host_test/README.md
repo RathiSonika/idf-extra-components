@@ -102,4 +102,22 @@ idf.py --preview set-target linux
 idf.py build monitor
 ```
 
+### CI preset: experimental OOB layout (`sdkconfig.ci.oob_layout`)
+
+CI also builds with `CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT=y` (file `sdkconfig.ci.oob_layout`) into `build_linux_oob_layout`. Reproduce locally:
+
+```bash
+idf.py --preview set-target linux
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.ci.oob_layout" -B build_linux_oob_layout build
+idf.py -B build_linux_oob_layout monitor
+```
+
+Run the **full** host pytest matrix (default + OOB) from the repo root after building both `build_linux_default` and `build_linux_oob_layout` under `spi_nand_flash/host_test/`:
+
+```bash
+pytest spi_nand_flash/host_test/pytest_nand_flash_linux.py \
+  --target linux -m host_test \
+  --build-dir=build_linux
+```
+
 Catch2-based suites are selected from `test_app_main.cpp` according to Kconfig (see the **Linux Host Testing** section in [`layered_architecture.md`](../layered_architecture.md)): legacy raw/device tests vs BDL-enabled sources such as `test_nand_flash_bdl.cpp` and `test_nand_flash_ftl.cpp`.
