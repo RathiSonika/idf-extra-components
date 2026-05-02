@@ -224,9 +224,61 @@ static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t blo
     return column_addr;
 }
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+/** @return true iff spare slice matches BBM good pattern at layout->bbm.bbm_offset for bbm_length bytes. */
+static bool nand_oob_bbm_good(const spi_nand_oob_layout_t *layout, const uint8_t *oob_slice)
+{
+    uint16_t off = layout->bbm.bbm_offset;
+    uint16_t len = layout->bbm.bbm_length;
+    for (uint16_t i = 0; i < len; i++) {
+        if (oob_slice[off + i] != layout->bbm.good_pattern[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
 esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t block, bool *is_bad_status)
 {
     uint32_t first_block_page = block * (1 << handle->chip.log2_ppb);
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    esp_err_t ret = ESP_OK;
+    const spi_nand_oob_layout_t *layout = handle->oob_layout;
+    ESP_GOTO_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, fail, TAG, "OOB layout not attached");
+    uint8_t pmask = layout->bbm.check_pages_mask;
+    ESP_GOTO_ON_FALSE(pmask != 0, ESP_ERR_INVALID_STATE, fail, TAG, "BBM check_pages_mask empty");
+
+    uint32_t ppb = (uint32_t)(1u << handle->chip.log2_ppb);
+    bool is_bad = false;
+
+    if (pmask & (uint8_t)SPI_NAND_BBM_CHECK_FIRST_PAGE) {
+        ESP_GOTO_ON_ERROR(read_page_and_wait(handle, first_block_page, NULL), fail, TAG, "");
+        uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
+        ESP_GOTO_ON_ERROR(spi_nand_read(handle, handle->read_buffer, column_addr, 4), fail, TAG, "");
+        ESP_LOGD(TAG, "is_bad, block=%"PRIu32", page=%"PRIu32",indicator = %02x,%02x", block, first_block_page,
+                 handle->read_buffer[0], handle->read_buffer[1]);
+        if (!nand_oob_bbm_good(layout, handle->read_buffer)) {
+            is_bad = true;
+        }
+    }
+    /* Multi-page mask: first page (if selected), then last page; short-circuit if already bad. */
+    if (!is_bad && (pmask & (uint8_t)SPI_NAND_BBM_CHECK_LAST_PAGE)) {
+        uint32_t last_page = first_block_page + ppb - 1;
+        ESP_GOTO_ON_ERROR(read_page_and_wait(handle, last_page, NULL), fail, TAG, "");
+        uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
+        ESP_GOTO_ON_ERROR(spi_nand_read(handle, handle->read_buffer, column_addr, 4), fail, TAG, "");
+        if (!nand_oob_bbm_good(layout, handle->read_buffer)) {
+            is_bad = true;
+        }
+    }
+    *is_bad_status = is_bad;
+    return ret;
+
+fail:
+    ESP_LOGE(TAG, "Error in nand_is_bad %d", ret);
+    return ret;
+#else
     // Markers layout: [bad_block_marker (bytes 0-1)][page_used_marker (bytes 2-3)]
     uint8_t markers[4];
     esp_err_t ret = ESP_OK;
@@ -247,6 +299,7 @@ esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t block, bool *is_
 fail:
     ESP_LOGE(TAG, "Error in nand_is_bad %d", ret);
     return ret;
+#endif
 }
 
 esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
@@ -254,8 +307,10 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
     esp_err_t ret = ESP_OK;
 
     uint32_t first_block_page = block * (1 << handle->chip.log2_ppb);
+#if !CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
     // Markers layout: [bad_block_marker (bytes 0-1)][page_used_marker (bytes 2-3)]
     const uint8_t markers[4] = { 0x00, 0x00, 0xFF, 0xFF }; //// 0x0000 (bad block), 0xFFFF (free)
+#endif
     uint8_t status;
     ESP_LOGD(TAG, "mark_bad, block=%"PRIu32", page=%"PRIu32"", block, first_block_page);
 
@@ -274,13 +329,36 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
 
     uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    {
+        const spi_nand_oob_layout_t *layout = handle->oob_layout;
+        ESP_GOTO_ON_FALSE(layout != NULL, ESP_ERR_INVALID_STATE, fail, TAG, "OOB layout not attached");
+        uint8_t *markers_dma = handle->temp_buffer;
+        memset(markers_dma, 0xFF, 4);
+        for (unsigned i = 0; i < layout->bbm.bbm_length; i++) {
+            markers_dma[layout->bbm.bbm_offset + i] = (uint8_t) ~layout->bbm.good_pattern[i];
+        }
+        spi_nand_oob_xfer_ctx_t ctx;
+        ESP_GOTO_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                          markers_dma, 4), fail, TAG, "");
+        static const uint8_t s_page_used_free[2] = { 0xFF, 0xFF };
+        ESP_GOTO_ON_ERROR(nand_oob_scatter(&ctx, 0, s_page_used_free, sizeof(s_page_used_free)),
+                          fail, TAG, "");
+        ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, markers_dma, column_addr, 4), fail, TAG, "");
+    }
+#else
     // Write 4 bytes: bad block marker (0x0000) + page used marker (0xFFFF)
     ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (const uint8_t *) &markers,
                                             column_addr, 4), fail, TAG, "");
+#endif
     ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, first_block_page, NULL), fail, TAG, "");
 
 #if CONFIG_NAND_FLASH_VERIFY_WRITE
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    ret = s_verify_write(handle, handle->temp_buffer, column_addr, 4);
+#else
     ret = s_verify_write(handle, (uint8_t *)&markers, column_addr, 4);
+#endif
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "%s: mark_bad write verification failed for block=%"PRIu32" and page=%"PRIu32"", __func__, block, first_block_page);
     }
