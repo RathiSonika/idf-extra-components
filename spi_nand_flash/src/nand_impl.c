@@ -16,6 +16,7 @@
 
 #if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
 #include "nand_oob_device.h"
+#include "nand_oob_xfer.h"
 #endif
 
 #define ROM_WAIT_THRESHOLD_US 1000
@@ -395,6 +396,26 @@ fail:
 esp_err_t nand_is_free(spi_nand_flash_device_t *handle, uint32_t page, bool *is_free_status)
 {
     esp_err_t ret = ESP_OK;
+
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    uint8_t marker[2];
+
+    ESP_GOTO_ON_ERROR(read_page_and_wait(handle, page, NULL), fail, TAG, "");
+
+    uint32_t block = page >> handle->chip.log2_ppb;
+    uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
+
+    ESP_GOTO_ON_ERROR(spi_nand_read(handle, handle->read_buffer, column_addr, 4), fail, TAG, "");
+
+    spi_nand_oob_xfer_ctx_t ctx;
+    ESP_GOTO_ON_ERROR(nand_oob_xfer_ctx_init(&ctx, handle->oob_layout, handle, SPI_NAND_OOB_CLASS_FREE_ECC,
+                      handle->read_buffer, 4), fail, TAG, "");
+    ESP_GOTO_ON_ERROR(nand_oob_gather(&ctx, 0, marker, sizeof(marker)), fail, TAG, "");
+
+    ESP_LOGD(TAG, "is free, page=%"PRIu32", used_marker=%02x,%02x,", page, marker[0], marker[1]);
+    *is_free_status = (marker[0] == 0xFF && marker[1] == 0xFF);
+    return ret;
+#else
     // Markers layout: [bad_block_marker (bytes 0-1)][page_used_marker (bytes 2-3)]
     uint8_t markers[4];
 
@@ -411,6 +432,7 @@ esp_err_t nand_is_free(spi_nand_flash_device_t *handle, uint32_t page, bool *is_
     ESP_LOGD(TAG, "is free, page=%"PRIu32", used_marker=%02x,%02x,", page, markers[2], markers[3]);
     *is_free_status = (markers[2] == 0xFF && markers[3] == 0xFF);
     return ret;
+#endif
 fail:
     ESP_LOGE(TAG, "Error in nand_is_free %d", ret);
     return ret;
