@@ -18,6 +18,10 @@
 #include "freertos/semphr.h"
 #include "nand_device_types.h"
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+#include "nand_oob_layout_types.h"
+#endif
+
 #ifdef CONFIG_NAND_FLASH_ENABLE_BDL
 #include "esp_blockdev.h"
 #endif
@@ -58,6 +62,19 @@ struct spi_nand_flash_device_t {
     uint8_t *read_buffer;
     uint8_t *temp_buffer;
     SemaphoreHandle_t mutex;
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    /**
+     * OOB layout state: filled once in @ref nand_oob_attach_default_layout, read-only thereafter.
+     * Not ISR-safe; used only from task context like the rest of nand_impl.
+     *
+     * @note chip_ctx for layout ops (`free_region` / `ecc_region`) is the owning @c spi_nand_flash_device_t*
+     *       passed as @c const void* — same convention as @ref nand_oob_xfer_ctx_init.
+     */
+    const spi_nand_oob_layout_t *oob_layout;
+    spi_nand_oob_field_spec_t oob_fields[SPI_NAND_OOB_FIELD_COUNT];
+    spi_nand_oob_region_desc_t oob_cached_regs_free_ecc[SPI_NAND_OOB_MAX_REGIONS];
+    uint8_t oob_cached_reg_count_free_ecc;
+#endif
 #ifdef CONFIG_IDF_TARGET_LINUX
     nand_mmap_emul_handle_t *emul_handle;
 #endif

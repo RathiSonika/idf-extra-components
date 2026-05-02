@@ -13,6 +13,10 @@
 #include "nand.h"
 #include "nand_linux_mmap_emul.h"
 
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+#include "nand_oob_device.h"
+#endif
+
 static const char *TAG = "nand_linux";
 
 /* OOB marker layout at page data offset `page_size` (matches nand_impl.c HW path):
@@ -123,6 +127,9 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
         ret = ESP_ERR_NO_MEM;
         goto fail;
     }
+#if CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT
+    ESP_GOTO_ON_ERROR(nand_oob_attach_default_layout(*handle), fail, TAG, "OOB layout attach failed");
+#endif
     return ret;
 
 fail:

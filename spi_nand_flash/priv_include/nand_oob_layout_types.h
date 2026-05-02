@@ -92,6 +92,9 @@ typedef enum {
     SPI_NAND_OOB_FIELD_MAX,
 } spi_nand_oob_field_id_t;
 
+/** Number of field slots in `spi_nand_flash_device_t::oob_fields` (equals @ref SPI_NAND_OOB_FIELD_MAX). */
+#define SPI_NAND_OOB_FIELD_COUNT SPI_NAND_OOB_FIELD_MAX
+
 /**
  * @brief Per-field placement after init resolves layout → logical stream.
  */
