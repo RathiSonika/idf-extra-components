@@ -22,10 +22,16 @@ The on-disk file layout is `pages_per_block × (page_size + chip.emulated_page_o
 - For non-default layouts: `chip.emulated_page_oob` reflects whatever `oob_bytes` the layout declares; the file is reformatted on the next `nand_emul_init` (which already memsets to `0xFF` per baseline §4.7), so there is no migration concern within the host-test scope.
 - Step 10 must **not** silently change the stride formula or the per-page-size defaults under Kconfig `n`.
 
+## Known bug §11.4.1 — implement `nand_emul_get_stats` (**required in this step**)
+
+[`known-bugs.md`](../../known-bugs.md) §11.4.1: `nand_emul_get_stats` is declared in [`include/nand_linux_mmap_emul.h`](../../../include/nand_linux_mmap_emul.h) when `CONFIG_NAND_ENABLE_STATS=y` but **never defined** → link errors for out-of-tree callers.
+
+- **Implement** `nand_emul_get_stats` in [`src/nand_linux_mmap_emul.c`](../../../src/nand_linux_mmap_emul.c): read counters from `nand_mmap_emul_handle_t::stats` (same structure `nand_emul_clear_stats` uses) and write through the `size_t*` out-parameters.
+- **Host test:** Add a case under `host_test/main/` that performs a deterministic number of emulated read/write/erase ops and asserts returned stats match (per known-bugs validation bullet).
+
 ## Non-goals
 
 - Changing [`src/nand_linux_mmap_emul.c`](../../../src/nand_linux_mmap_emul.c) file layout under Kconfig `n`. Touch it only if a `y`-mode layout legitimately needs a different stride and the formula above produces it; comment the change clearly.
-- Adding host-side stats / counters beyond what already exists.
 
 ## Files to touch
 
@@ -33,7 +39,8 @@ The on-disk file layout is `pages_per_block × (page_size + chip.emulated_page_o
 |------|--------|
 | [`src/nand_impl_linux.c`](../../../src/nand_impl_linux.c) | Conditional layout paths for all five primitives |
 | [`priv_include/nand.h`](../../../priv_include/nand.h) | Already has device fields from step 05 — ensure Linux init calls the **same** layout-attach helper as the target path (may live in shared `src/nand_oob_device.c`) |
-| [`src/nand_linux_mmap_emul.c`](../../../src/nand_linux_mmap_emul.c) | Touch only if stride formula above requires it; otherwise no change |
+| [`src/nand_linux_mmap_emul.c`](../../../src/nand_linux_mmap_emul.c) | **`nand_emul_get_stats` implementation** (§11.4.1) + touch only if stride formula requires emulator changes |
+| `host_test/main/*` | **New or extended test** for `nand_emul_get_stats` when stats Kconfig enabled |
 
 ## Implementation checklist
 
@@ -50,6 +57,7 @@ The on-disk file layout is `pages_per_block × (page_size + chip.emulated_page_o
 
 ## Acceptance criteria
 
+- [ ] **§11.4.1:** With `CONFIG_NAND_ENABLE_STATS=y`, **`nand_emul_get_stats` links** and host test passes (or document skip if CI never enables stats — prefer implementing test behind same Kconfig).
 - [ ] Host tests pass **`n`** (CI default) — on-disk stride and marker bytes byte-identical to pre-change tree.
 - [ ] Host tests pass **`y`** with default layout — on-disk stride matches the formula above; marker bytes byte-identical to `n`.
 - [ ] All five primitives (`is_free`, `prog`, `is_bad`, `mark_bad`, `copy`) honor the layout under `y`.

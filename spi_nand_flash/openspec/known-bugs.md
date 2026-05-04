@@ -8,6 +8,8 @@
 
 ## 11.4 Known bugs / follow-ups (queued for next release)
 
+**OpenSpec note:** Fixes for **§11.4.1** and **§11.4.2** are scheduled in the [`changes/configurable-oob-layout/`](changes/configurable-oob-layout/) epic (**step 10** and **step 05** respectively). After those PRs land, this section should be updated or entries removed so the queue stays accurate.
+
 These are issues confirmed against the current tree (commit at the time
 this baseline was written). They are **not** part of the stable behavior
 that future OpenSpec changes need to preserve — they are explicitly

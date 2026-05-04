@@ -19,14 +19,21 @@ When Kconfig is **`n`**, **no new struct members** (use `#ifdef CONFIG_NAND_FLAS
 - **No mutable xfer ctx on the handle.** The xfer context (`spi_nand_oob_xfer_ctx_t` from step 04) carries an `oob_raw` pointer plus per-call bytes; it is **stack-local per call site** in steps 06–09. The handle only holds:
   - `const spi_nand_oob_layout_t *oob_layout;` (points at static rodata)
   - `spi_nand_oob_field_spec_t oob_fields[SPI_NAND_OOB_FIELD_COUNT];` (assigned once at init, read-only after)
-  - **Optionally**, a small const `spi_nand_oob_region_desc_t cached_regs[SPI_NAND_OOB_MAX_REGIONS]` + `uint8_t cached_reg_count` per class (assigned once at init, read-only after) — purely a perf cache so steps 06–09 don't re-walk `free_region` callbacks per call.
+   - **Optionally**, small const `spi_nand_oob_region_desc_t` caches + counts for **FREE_ECC** and **FREE_NOECC** (each up to `SPI_NAND_OOB_MAX_REGIONS`, assigned once at init, read-only after) — perf cache so steps 06–09 don't re-walk `free_region` per call; default layout only populates FREE_ECC.
 - Reason: raw Flash BDL paths (`src/nand_flash_blockdev.c`) call `nand_*` primitives **without taking `handle->mutex`** (baseline §9.1). A mutable cached ctx on the handle would race between two raw-BDL callers on different tasks. Stack-local ctx is lock-free by construction.
 - **Non-ISR contract:** none of the layout helpers (init, scatter, gather, field read/write) are ISR-safe. They are only callable from task context, same as the rest of `nand_impl`. Document this in the header.
 
-## No new heap allocations (load-bearing — known-bugs.md §11.4.2)
+## Internal RAM for handle + Dhara private data ([`known-bugs.md`](../../known-bugs.md) §11.4.2 — **fix in this step**)
 
-- All new state lives **inside** the existing `spi_nand_flash_device_t` allocation. Do **not** introduce separate `heap_caps_*` calls for layout state.
-- Reason: the device handle already has a known PSRAM-placement issue (baseline §11.4.2). Folding layout state into the same allocation means when that bug is fixed (move handle to `MALLOC_CAP_INTERNAL`), the layout state moves with it for free. A separate allocation here would compound the problem.
+- Change **`nand_init_device`** (`src/nand_impl.c`) so the **`spi_nand_flash_device_t`** allocation uses **`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`** (not `MALLOC_CAP_DEFAULT` alone), so the handle, mutex, and embedded layout fields never land in PSRAM when the default heap is external.
+- Change **`dhara_init`** (`src/dhara_glue.c`) so **`spi_nand_flash_dhara_priv_data_t`** is allocated with **`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`** for the same reason.
+- **Keep** page/read/temp work buffers on **`MALLOC_CAP_DMA | MALLOC_CAP_8BIT`** as today.
+- **Optional hardening:** `xSemaphoreCreateMutexStatic` + `StaticSemaphore_t` embedded in the handle if reviewers want the mutex control block guaranteed internal too — not required if mutex allocation follows internal handle memory policy on your IDF version; document the choice in the PR.
+- **Validation:** debug build may `assert(esp_ptr_internal(handle))` after alloc (as suggested in known-bugs §11.4.2); run **`test_app`** with **`CONFIG_SPIRAM_USE_MALLOC=y`** on a PSRAM board if available.
+
+## No *extra* heap allocations for layout-only blobs
+
+- All **new layout-related** bytes live **inside** the existing `spi_nand_flash_device_t` allocation (same object now forced internal per above). Do **not** introduce a **second** `heap_caps_*` object just for layout tables.
 
 ## Non-goals
 
@@ -46,13 +53,14 @@ When Kconfig is **`n`**, **no new struct members** (use `#ifdef CONFIG_NAND_FLAS
 1. Extend device struct (ifdef guarded; **all read-only after init**):
    - `const spi_nand_oob_layout_t *oob_layout;`
    - `spi_nand_oob_field_spec_t oob_fields[SPI_NAND_OOB_FIELD_COUNT];` (small fixed count)
-   - **Optional perf cache:** `spi_nand_oob_region_desc_t oob_cached_regs_free_ecc[SPI_NAND_OOB_MAX_REGIONS]; uint8_t oob_cached_reg_count_free_ecc;` — populated once at init by walking `free_region` for `FREE_ECC`. Reused as a read-only source by stack-local xfer ctx in steps 06–09.
+   - **Optional perf cache:** `oob_cached_regs_free_ecc[]` / `oob_cached_reg_count_free_ecc` and symmetric `oob_cached_regs_free_no_ecc[]` / `oob_cached_reg_count_free_no_ecc` — populated once at init from each `free_region` descriptor (`programmable && ecc_protected` → ECC cache, `programmable && !ecc_protected` → NOECC cache). Reused read-only by stack-local xfer ctx in steps 06–09.
    - **Do NOT** add `spi_nand_oob_xfer_ctx_t` as an embedded field. That struct holds the per-call `oob_raw` pointer and is mutable per call; embedding it would break the concurrency contract above.
 2. Init function responsibilities:
-   - Set `oob_layout = nand_oob_layout_get_default()`.
+   - **ECC / feature register read order (load-bearing — proposal §2.1a):** Run vendor/chip-specific init that **enables or selects internal ECC** (and any related configuration) **first**, so subsequent **Get Feature** / configuration reads reflect the **same** ECC mode the driver uses for I/O. Only **after** that, read the ECC-related bits used as the **ECC mode key** for layout lookup `(MI, DI, ECC mode)` and attach the matching layout (today: still default layout for all supported parts until vendor tables land).
+   - Set `oob_layout = nand_oob_layout_get_default()` (or table lookup in a later step).
    - If layout uses `oob_bytes == 0` pattern (step 03 Pattern A), fill the runtime cache from `chip.emulated_page_oob` (Linux) or the chip's spare size (target).
    - Initialize field specs: `PAGE_USED` `length=2`, `class=FREE_ECC`, `logical_offset=0`, `assigned=true`.
-   - If using the perf cache: walk `layout->ops->free_region(handle, section, &desc)` once per class; copy descriptors into `oob_cached_regs_*[]`; record count.
+   - If using the perf cache: walk `layout->ops->free_region(handle, section, &desc)` once; split programmable regions into `oob_cached_regs_free_ecc` vs `oob_cached_regs_free_no_ecc` by `ecc_protected`; record counts.
 3. Deinit / fail paths: no leaks — no heap if embedded-only design (which is the requirement above).
 4. **Mutex:** Init runs single-threaded before mutex use; no locking change here. After init, all new fields are read-only, so no lock needed for reads on hot paths.
 
@@ -63,15 +71,17 @@ When Kconfig is **`n`**, **no new struct members** (use `#ifdef CONFIG_NAND_FLAS
 
 ## Acceptance criteria
 
-- [ ] Kconfig `n`: struct size/layout unchanged vs baseline (no new members).
+- [ ] **§11.4.2:** Device handle and Dhara private struct allocate from **internal** RAM (`MALLOC_CAP_INTERNAL`); evidence in PR (assert log or `idf.py size` + config note).
+- [ ] Kconfig `n`: **no new `#ifdef` OOB layout fields** on the handle vs baseline. §11.4.2 allocator changes may apply to **all** builds — note in PR / CHANGELOG (step 12) if user-visible (e.g. slightly different heap usage).
 - [ ] Kconfig `y`: after `nand_init_device`, handle has non-NULL `oob_layout` and valid field spec for PAGE_USED (`length=2`, `logical_offset=0`, `class=FREE_ECC`, `assigned=true`).
 - [ ] Kconfig `y`: **no** mutable xfer ctx embedded in the handle (review checklist).
-- [ ] Kconfig `y`: **no** new `heap_caps_*` calls — all new state inside the existing handle allocation (review checklist; PR description must enumerate added bytes).
+- [ ] Kconfig `y`: layout state lives in the **same** handle object as §11.4.2 — no separate heap object for layout metadata.
+- [ ] ECC-sensitive register reads for layout happen **after** chip ECC configuration is applied (review order vs vendor `init`).
 - [ ] No functional change to read/program yet (behavior identical).
 
 ## Risks
 
-- RAM growth per handle when `y` — document bytes added in PR description. The `cached_regs[]` perf cache is the largest contributor; if `SPI_NAND_OOB_MAX_REGIONS` is set high (step 02 Q3), reconsider whether the cache is worth it for the default 1-region layout.
+- RAM growth per handle when `y` — document bytes added in PR description. The `cached_regs[]` perf cache is the largest contributor; **`SPI_NAND_OOB_MAX_REGIONS` is 8** (step 02 / root [`README.md`](README.md)) — for the default single-region layout the cache stays small.
 
 ## Notes for implementers
 

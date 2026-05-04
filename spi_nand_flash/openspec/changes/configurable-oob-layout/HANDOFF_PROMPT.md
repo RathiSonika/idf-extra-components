@@ -15,12 +15,12 @@ STEP TO IMPLEMENT: NN only (do not implement earlier or later steps).
 
 MANDATORY READ ORDER (open and follow in full before coding):
 1. openspec/configurable_oob_layout_proposal.md — product intent, §1.2 current OOB bytes, Kconfig policy, constraints (Dhara unchanged, default layout = legacy behavior).
-2. openspec/changes/configurable-oob-layout/README.md — global PR rules (≤500–700 LOC per PR, Linux parity rule, test_app mandatory at step 11).
+2. openspec/changes/configurable-oob-layout/README.md — global PR rules **and** the **Implementation decisions** table (MAX regions = 8, table→generic layout, known-bugs §11.4.1/§11.4.2 step mapping, concurrency note).
 3. openspec/changes/configurable-oob-layout/step-NN-*.md — sole source of truth for THIS PR’s scope, files, checklist, acceptance criteria.
 
 ABSOLUTE RULES:
 - Implement ONLY step NN. If something obviously depends on a prior step not merged, stop and say so — do not invent scope.
-- Do NOT modify the Dhara library/vendor component; only spi_nand_flash sources + test_app + host_test as the step doc allows.
+- Do NOT modify the **vendored Dhara library**; `src/dhara_glue.c` may change if the step doc says so (e.g. step 05). Only spi_nand_flash sources + test_app + host_test as the step doc allows.
 - CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT=n must preserve legacy behavior exactly until step docs say otherwise.
 - When that Kconfig is y and default layout is used, on-flash marker semantics must match proposal §1.2 (same bytes/offsets as today).
 - Keep new layout types in priv_include/ unless the step explicitly says otherwise — no new stable public API in include/ without maintainer decision.

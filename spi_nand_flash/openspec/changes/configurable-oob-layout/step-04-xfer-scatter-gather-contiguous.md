@@ -12,7 +12,7 @@ Implement **init-time** caching for xfer context:
 - `nand_oob_scatter(...)` — copy **from** logical field buffer **into** `oob_raw[]` at mapped physical offsets (write path).
 - `nand_oob_gather(...)` — copy **from** `oob_raw[]` **into** logical buffer (read path).
 
-For **default layout** (single region length **2**, see step 03), scatter/gather must be **O(1)** memcpy slices — **no** loops over fragments beyond what `MAX_REGIONS` allows.
+For **default layout** (single region length **2**, see step 03), scatter/gather must be **O(1)** memcpy slices — **no** loops over fragments beyond what **`SPI_NAND_OOB_MAX_REGIONS` (8)** allows (see step 02 / root [`README.md`](README.md)).
 
 **Single-program-execute invariant (proposal §2.2 / §7.0):** All `program_load` calls produced by scatter on a single logical page program **must** precede exactly one `program_execute_and_wait`. The scatter API itself does not issue NAND I/O; the call site (`nand_prog`, step 07) is responsible for batching all loads before the single execute. Document this contract in the public-to-internal header for scatter so step 07 / 08 / 09 implementers cannot accidentally fan out.
 
