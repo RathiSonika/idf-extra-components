@@ -1,0 +1,22 @@
+---
+description: spi_nand_flash — short why-focused comments and concise commit messages
+globs:
+  - "**/*.c"
+  - "**/*.h"
+  - "**/CMakeLists.txt"
+  - "**/Kconfig"
+alwaysApply: true
+---
+
+# Comments and commits (`spi_nand_flash`)
+
+## Comments
+
+- Add a comment only when it prevents a wrong fix later or explains a non-obvious constraint.
+- State **why** (intent, invariant, hardware gotcha, ordering), not **what** the next line does. Keep it to one line when possible.
+- Write like a normal firmware author: plain technical English, no citations to external docs, no process jargon.
+
+## Commits
+
+- **Subject:** `feat(spi_nand_flash): <imperative, ~72 chars>` (use `fix` / `docs` / `test` / `refactor` when that fits better).
+- **Body:** At most one or two short lines only if the subject is not enough. No pointers to change lists, tickets, or doc filenames in the subject or body unless the team already does that elsewhere.

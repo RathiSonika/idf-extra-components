@@ -8,10 +8,26 @@
 
 This folder splits that proposal into **ordered, review-sized PRs** (target **≤500–700 lines of meaningful diff** per PR; docs-only or mechanical moves may exceed slightly if semantically trivial).
 
+## Implementation decisions (locked for this plan)
+
+Work proceeds **step 01 → step 12** in order; each step doc is the source of truth for that PR.
+
+| Topic | Decision |
+|--------|----------|
+| **Layout selection** | **Device table → generic default only.** No runtime “config override” pointer in `spi_nand_flash_config_t` for this epic; match `(MI, DI, ECC mode)` to a row or fall back to generic §1.2 layout. |
+| **`SPI_NAND_OOB_MAX_REGIONS` (RFC `MAX_REG`)** | **`8`** for the first implementation (step 02). Revisit only if a supported datasheet needs more fragments. |
+| **Field IDs vs hot path** | **Field ID enum + `field_spec_t` are for maintainability and init-time assignment.** At runtime, **`nand_*` uses init-cached offsets / scatter on DMA buffers** — no per-I/O enum dispatch required. Dhara never sees field IDs. |
+| **`nand_copy` bug** | **Fix duplicate `program_execute_and_wait` on the cross-plane branch** in step **09** (exactly **one** execute per path). |
+| **`nand_diag_api.c`** | **No change** in this epic unless a later audit finds hardcoded OOB assumptions. |
+| **ECC vs layout init** | Read ECC feature/configuration registers **after** vendor/chip init has applied the ECC configuration the driver will use (step **05**). |
+| **Concurrency (why stack xfer ctx)** | Some code paths call `nand_*` **without** `handle->mutex`. If the handle held a **shared scratch buffer** for OOB work, two callers could **overwrite each other’s data**. **Stack-local** xfer context + existing DMA `read_buffer`/`temp_buffer` under the normal locked paths avoids that; do not stash mutable OOB scratch on the handle. |
+| **API visibility** | New layout/xfer symbols stay under **`priv_include/`** until an explicit promotion (step **12** / follow-up). |
+| **Known bugs ([`../../known-bugs.md`](../../known-bugs.md))** | **§11.4.2** (handle/Dhara alloc internal RAM): fix in step **05**. **§11.4.1** (`nand_emul_get_stats` missing): implement in step **10** (+ host test). |
+
 ## Conventions for every PR
 
 1. **Branch naming:** e.g. `feat/oob-layout-step-03-default-layout` (team convention may vary).
-2. **Do not modify Dhara** (vendor component); only `spi_nand_flash` tree + **both** test apps ([`test_app/`](../../../test_app/) on-target, [`host_test/`](../../../host_test/) Linux).
+2. **Do not modify the vendored Dhara library**; `spi_nand_flash/src/dhara_glue.c` **may** change when a step explicitly requires it (e.g. step **05** §11.4.2 allocations). Only `spi_nand_flash` tree + **both** test apps ([`test_app/`](../../../test_app/) on-target, [`host_test/`](../../../host_test/) Linux).
 3. **Kconfig off = baseline behavior:** When `CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT` is **not** set, behavior must match **pre-change** `nand_impl.c` / `nand_impl_linux.c` (see proposal §1.2).
 4. **Default layout when Kconfig on:** For all chips supported **before** this work, default layout must reproduce **byte-identical** OOB marker patterns and column addressing vs §1.2 (proposal Q1).
 5. **Types & APIs:** Keep new layout/field types in **`priv_include/`** until an explicit follow-up promotes symbols to `include/` (proposal §7 Q4).
@@ -33,7 +49,7 @@ This folder splits that proposal into **ordered, review-sized PRs** (target **�
 | **09** | [step-09-nand-copy.md](step-09-nand-copy.md) | `nand_copy` marker / OOB parity (incl. plane-equal branch) |
 | **10** | [step-10-linux-parity.md](step-10-linux-parity.md) | `nand_impl_linux.c` (and emulator if needed): match target |
 | **11** | [step-11-tests-and-ci-matrix.md](step-11-tests-and-ci-matrix.md) | **`test_app` + `host_test`** sdkconfig presets, pytest matrix; Kconfig on/off |
-| **12** | [step-12-docs-and-follow-ups.md](step-12-docs-and-follow-ups.md) | CHANGELOG, proposal pointer, deferred work (MAX_REG, public API) |
+| **12** | [step-12-docs-and-follow-ups.md](step-12-docs-and-follow-ups.md) | CHANGELOG, proposal pointer, deferred work (public API, vendor layouts) |
 
 ## Dependency graph
 

@@ -1,75 +1,100 @@
-# Step 09 — `nand_copy` marker / OOB correctness (both plane branches)
+# Step 09 — `nand_copy`: fix double execute + layout / full-spare parity
 
 **PR identifier:** `oob-layout-09`  
 **Depends on:** steps **01–08**  
-**Estimate:** ~250–500 LOC
+**Estimate:** ~300–650 LOC (bugfix + optional buffer growth for full spare)
 
 ## Goal
 
-Align [`src/nand_impl.c`](../../../src/nand_impl.c) **`nand_copy`** with the **two locked invariants** from proposal §2.2 / §7.0:
+### A. Bugfix: duplicate `program_execute` (all Kconfig values — **required**)
 
-1. **Same-plane fast path (`src_column_addr == dst_column_addr`):** Today's code does **not** reprogram OOB on dst — it relies on the chip's internal page-move command (page-read into chip cache → program-execute on dst) to carry the **entire** spare area along with the data.
+[`src/nand_impl.c`](../../../src/nand_impl.c) **`nand_copy`** currently calls **`program_execute_and_wait(handle, dst, …)` twice** on the **cross-plane** path: once inside the `if (src_column_addr != dst_column_addr)` block and again unconditionally at the bottom of the function. That is **incorrect** for NAND (second execute without a valid reload sequence).
 
-   Per proposal §7.0 invariant *"Chip-internal page-copy preserves OOB byte-for-byte"*, this is treated as **load-bearing for all supported parts**. Configurable layouts ride along the same-plane fast path with **no extra OOB programming**. Step 09 therefore:
+- **Restructure** so each branch runs **exactly one** `program_execute_and_wait` for `dst`:
+  - **Cross-plane:** one execute after all `program_load` operations for that copy.
+  - **Same-plane:** one execute only (unchanged count vs intended legacy behavior — today the same-plane path only hits the bottom execute; verify after refactor that same-plane still has **one** execute total).
 
-   - Preserves today's behavior on this branch byte-for-byte under both `n` and `y`.
-   - Adds an in-code comment citing the §7.0 invariant so a future reader does not "fix" it by adding a redundant OOB program.
-   - Optionally adds a build-time assertion or comment near the branch documenting the assumption.
+### B. Same-plane fast path (proposal §7.0 — unchanged behavior)
 
-2. **Cross-plane branch (`src_column_addr != dst_column_addr`):** Today's code does CPU-side `spi_nand_read(main)` → `spi_nand_program_load(main)` → `spi_nand_program_load(markers `{0xFF,0xFF,0x00,0x00}` at `dst_column_addr + page_size`)` → `program_execute_and_wait`. With **`y`**, route the marker `program_load` through the layout scatter path identical to step 07 (BBM `0xFF,0xFF` + PAGE_USED `0x00,0x00`).
+When `src_column_addr == dst_column_addr`:
 
-3. **`n`:** Both branches behave bit-identical to pre-change tree.
+- Preserve **no** extra OOB `program_load` — chip-internal page program carries full spare (proposal invariant).
+- Keep / add the **comment** from the previous step-09 text citing §7.0 so future edits do not “fix” OOB on this branch.
 
-## Single-program-execute invariant (mirror of step 07)
+### C. Cross-plane + **`CONFIG_NAND_FLASH_EXPERIMENTAL_OOB_LAYOUT=y`** (**required** for acceptance when `y`)
 
-The cross-plane branch must produce **exactly one** `program_execute_and_wait` per `nand_copy` invocation (same as today: two `program_load`s — main + markers — then one execute). The scatter path **must not** add a second execute for OOB.
+- **Markers:** Compose the marker region via the same layout/scatter approach as step **07** (BBM good pattern + PAGE_USED used) into DMA-capable scratch (`handle->temp_buffer`), not a stack SPI buffer.
+- **Full spare image (proposal §2.2 *Cross-plane vs same-plane equivalence*):** After `read_page_and_wait(src)`, read **`handle->chip.page_size`** bytes of main **and** **`oob_size`** bytes of spare from the chip cache (using cached `oob_size` from layout / step 05 — **not** only 4 marker bytes), then `program_load` main and `program_load` full spare at `dst_column_addr` / `dst_column_addr + page_size`, then **one** `program_execute_and_wait`. This makes cross-plane `dst` match what same-plane would have written for the same `src` for the programmable spare region.
+
+  **Buffering:** Extend the cross-plane DMA buffer allocation from `page_size` to **`page_size + oob_size`** (cap `oob_size` using layout + sanity bound), or use `read_buffer`/`temp_buffer` slices documented in the PR — **no stack** for SPI.
+
+### D. Cross-plane + **`n`** (legacy)
+
+- After **(A)**, keep legacy **4-byte** marker program at spare base if full-spare copy is deferred for `n` — wire-level marker bytes must remain **byte-identical** to pre-fix tree for default geometry; only the **duplicate execute** is removed.
+
+**`n`:** Both branches after (A) behave as today except the **removed erroneous second execute** on cross-plane.
+
+## Single-program-execute invariant
+
+Each `nand_copy` invocation must end with **at most one** successful `program_execute_and_wait` toward `dst` per program sequence (mirror step 07).
 
 ## SPI-buffer-discipline rule (mirror of step 06/07/08)
 
-- Cross-plane branch already uses `heap_caps_malloc(... MALLOC_CAP_DMA | MALLOC_CAP_8BIT)` for `copy_buf` (`nand_impl.c:487`) — keep that.
-- Marker scatter target must also be DMA-capable. `handle->temp_buffer`'s first 4 bytes are fine (it is allocated with DMA caps in `nand_init_device`, `nand_impl.c:117`). **No** stack array as the SPI transfer buffer.
+- Cross-plane main buffer: **`heap_caps_malloc(..., MALLOC_CAP_DMA | MALLOC_CAP_8BIT)`** — if grown for spare, keep DMA caps.
+- Marker / spare composition: **`handle->temp_buffer`** or the same DMA heap buffer — **no** stack `uint8_t[]` handed to `spi_nand_program_load` / `spi_nand_read`.
 
 ## Non-goals
 
-- Redesigning copy to a single atomic multi-plane command — out of scope.
-- Forcing OOB reprogram on the same-plane fast path — explicitly **forbidden** by §7.0 invariant.
+- Redesigning copy to a single atomic multi-plane vendor command — out of scope.
+- **`nand_diag_api.c`** — no change (root [`README.md`](README.md)).
 
 ## Files to touch
 
 | File | Action |
 |------|--------|
-| [`src/nand_impl.c`](../../../src/nand_impl.c) | `nand_copy` |
+| [`src/nand_impl.c`](../../../src/nand_impl.c) | `nand_copy` refactor + `y` paths |
 
 ## Implementation checklist
 
-1. **Same-plane branch:** No code change to OOB behavior. **Add a comment** referencing the proposal §7.0 invariant and `RFC_SPI_NAND_OOB_LAYOUT.md` so the assumption is discoverable from the code site. Suggested wording:
-   ```c
-   /* Same-plane (fast) path: chip-internal page-move preserves the entire
-    * spare area byte-for-byte (proposal §7.0 invariant). Do NOT add an
-    * OOB reprogram here — it would double-write OOB and change wire-level
-    * behavior for default and configurable layouts alike. */
+0. **Map current fall-through** — Identify both `program_execute_and_wait` call sites on the cross-plane path; sketch control flow so the unconditional tail execute does **not** run after cross-plane already executed.
+1. **Refactor structure (pseudocode):**
+
+   ```text
+   read_page_and_wait(src)
+   if (cross-plane) {
+       allocate DMA buffer >= page_size + (y ? oob_size : 0 or legacy marker-only)
+       read main (+ spare per branch above)
+       write_enable; program_load main; program_load markers or full spare; program_execute_and_wait(dst) ONCE
+       free
+   } else {
+       write_enable; program_execute_and_wait(dst) ONCE   // cache already loaded from src
+   }
+   // verify-write block (#if CONFIG_NAND_FLASH_VERIFY_WRITE) updated so it does not assume an extra execute happened
    ```
-2. **Cross-plane branch:** Reuse the marker-composition helper from step 07 (BBM `0xFF,0xFF` + PAGE_USED `0x00,0x00`) into `handle->temp_buffer` first 4 bytes; replace the legacy hardcoded `markers[4]` literal with the layout-driven build. SPI sequence stays the same: read main → program_load main → program_load markers → program_execute_and_wait.
-3. **`CONFIG_NAND_FLASH_VERIFY_WRITE` parity (load-bearing):** the existing `s_verify_write` calls for both the main page and the markers (`nand_impl.c:540`, and any same-plane verify path) must remain. The `y` path must not skip or shorten verify; the bytes being verified are the layout-composed 4 bytes, identical to legacy for default layout. If verify is currently absent on the same-plane branch (no marker reprogram → no marker verify), keep it absent — do **not** add new verify traffic.
-4. **`n`:** Branches bit-identical to pre-change tree.
+
+2. **`y`:** Implement **(C)** full spare read/program using `nand_oob_*` helpers where applicable for the marker **subset**; raw `spi_nand_read`/`program_load` for bulk main+spare is acceptable if scatter is marker-only.
+3. **`CONFIG_NAND_FLASH_VERIFY_WRITE`:** Adjust branches so verification still matches the new execute count (re-read `dst` after the **single** execute).
+4. **Regression:** Logic analyzer or test assert: **one** program execute per `nand_copy` on cross-plane golden case.
 
 ## Testing
 
-- Stress copy tests if present; add host/target case if a gap is identified — may be folded into step 11.
+- Host/target copy tests; add a **unit-style** assertion in host test if available: cross-plane path invokes **one** execute (mock/spy if infrastructure exists — optional).
+- Full suites in step **11**.
 
 ## Acceptance criteria
 
-- [ ] Cross-plane branch: marker bytes on dst match legacy for default layout (`n` vs `y`), via layout scatter (BBM + PAGE_USED), not a hardcoded literal.
-- [ ] Cross-plane branch: exactly **one** `spi_nand_program_execute_and_wait` per `nand_copy` (same as today).
-- [ ] Same-plane branch: **no** OOB reprogram added under `y` (review checklist; proposal §7.0 invariant cited in code comment).
-- [ ] `CONFIG_NAND_FLASH_VERIFY_WRITE=y`: verify calls preserved symmetrically vs legacy on both branches.
-- [ ] Marker buffer for `program_load` is DMA-capable (`handle->temp_buffer`), not stack.
+- [ ] **Bugfix:** Cross-plane path never calls `program_execute_and_wait` **twice** for the same logical copy of `dst`.
+- [ ] Same-plane path: still **one** execute; **no** OOB `program_load`; §7.0 comment present.
+- [ ] **`y` + default layout:** Cross-plane `dst` spare matches **src** for full **`oob_size`** (proposal equivalence), not only 4 marker bytes — **or** document in PR why a follow-up PR completes full spare if step size must split.
+- [ ] **`n`:** Marker bytes on `dst` match **legacy** golden behavior; only duplicate-execute bug is fixed.
+- [ ] DMA / alignment rules respected (steps 06–08 mirror).
+- [ ] `CONFIG_NAND_FLASH_VERIFY_WRITE=y` paths updated and still run where applicable.
 
 ## Risks
 
-- Hidden reliance on hardware copy leaving OOB unchanged (the same-plane invariant) — if a future part violates this, that vendor module must opt out of the fast path; this step explicitly does **not** try to be defensive about that case.
-- Doubling programs by accident — extra `program_execute` on the same-plane branch would change wire behavior on every page copy.
+- **Buffer size** — `page_size + oob_size` heap use on cross-plane; watch fragmentation; prefer single alloc per copy, free before return.
+- **Verify-write** assumptions after control-flow change — easy to miss a branch.
 
 ## Notes for implementers
 
-- If step exceeds **700 LOC**, split: **09a** comment + cross-plane scatter only; **09b** any small refactor. Same-plane branch is comment-only so it should stay small.
+- If this step risks **>700 LOC**, split **09a** = duplicate-execute fix + `n` parity only; **09b** = `y` full-spare cross-plane + tests.

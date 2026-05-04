@@ -52,3 +52,4 @@ Parent proposal §2.1 requires Kconfig-gated rollout. This step establishes the 
 
 - Final name of the option may be shortened but keep **`NAND_FLASH_`** prefix consistent with `NAND_FLASH_ENABLE_BDL`.
 - Do **not** flip default to `y` until parent proposal rollout policy says so (later release; tracked in step 12).
+- Locked project decisions (MAX regions = 8, layout selection, known-bug partition, **no** `config` layout override) live in the folder [`README.md`](README.md) — read when implementing any later step.

@@ -51,11 +51,13 @@ Implementer may adjust names slightly but must preserve meaning:
    - BBM struct above.  
    - `const spi_nand_ooblayout_ops_t *ops`.
 
-5. **Fields**
+5. **Fields** (naming for **init-time** assignment — **not** a per-I/O dispatch layer)
 
    - `typedef enum { SPI_NAND_OOB_FIELD_PAGE_USED = 0, … } spi_nand_oob_field_id_t;`
    - `typedef enum { SPI_NAND_OOB_CLASS_FREE_ECC, SPI_NAND_OOB_CLASS_FREE_NOECC } spi_nand_oob_class_t;` (names flexible)
    - `spi_nand_oob_field_spec_t`: `id`, `length`, `class`, `logical_offset` (filled at init), `assigned` bool.
+
+   **Runtime:** steps 06–09 use **cached logical/physical offsets** + scatter/gather; Dhara does **not** pass field IDs. The enum exists so one init table documents “PAGE_USED” without magic numbers — see root [`README.md`](README.md) *Field IDs vs hot path*.
 
 6. **`spi_nand_oob_xfer_ctx_t`**  
    - Forward-declare or full struct with:
@@ -66,8 +68,8 @@ Implementer may adjust names slightly but must preserve meaning:
      - `uint8_t reg_count`
      - `size_t total_logical_len` (sum of lengths of cached regs for bounds checks)
 
-7. **`SPI_NAND_OOB_MAX_REGIONS`**  
-   - Document in header: conservative cap (e.g. **8** or **16**); proposal §7 Q3 — **pick a number now**, add TODO to validate against datasheets in step 12.
+7. **`SPI_NAND_OOB_MAX_REGIONS`** (same cap as RFC **`MAX_REG`**)  
+   - **`8`** — locked for this implementation (see root [`README.md`](README.md) *Implementation decisions*). `spi_nand_oob_xfer_ctx_t::regs[]` uses this dimension. Revisit only if a datasheet-backed layout needs more than eight disjoint free fragments.
 
 ## Files to touch
 
