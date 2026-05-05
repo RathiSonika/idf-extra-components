@@ -1,3 +1,9 @@
+## [1.1.0]
+
+### Added
+- Example `examples/nand_flash_bdl`: FatFS on SPI NAND via ESP-IDF BDL (`spi_nand_flash_init_with_layers` + `esp_vfs_fat_bdl_mount`), ESP-IDF 6.0+ with `CONFIG_NAND_FLASH_ENABLE_BDL=y`.
+- Documentation updates for BDL vs legacy FatFS paths in the component README and `spi_nand_flash/layered_architecture.md`.
+
 ## [1.0.0]
 
 ### Breaking Changes
