@@ -32,4 +32,64 @@ menu "SPI NAND Flash configuration"
         help
             This option enables gathering host test statistics and SPI NAND flash wear levelling simulation.
 
+    menu "Generic chip detection (fallback when chip not in database and not ONFI supported)"
+
+        config SPI_NAND_GENERIC_MANUAL
+            bool "Enable manual configuration fallback"
+            default n
+            help
+                When the chip is not in the driver database and ONFI parameter page detection fails,
+                allow initializing the chip using manual geometry and timing from the options below.
+                Use only for development or when the chip datasheet is known.
+
+        config SPI_NAND_GENERIC_PAGE_SIZE
+            int "Manual: page size in bytes"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 2048
+            range 512 8192
+            help
+                Page size (data area) from chip datasheet. Must be a power of 2 (e.g. 2048, 4096).
+
+        config SPI_NAND_GENERIC_PAGES_PER_BLOCK
+            int "Manual: pages per block"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 64
+            range 32 256
+            help
+                Number of pages per block from chip datasheet. Must be a power of 2 (e.g. 64, 128).
+
+        config SPI_NAND_GENERIC_BLOCKS
+            int "Manual: number of blocks"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 1024
+            range 256 8192
+            help
+                Total number of blocks from chip datasheet (e.g. 1024, 2048, 4096).
+
+        config SPI_NAND_GENERIC_T_R_US
+            int "Manual: page read time (us)"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 250
+            range 1 1000
+            help
+                Typical/maximum page read time in microseconds (t_R from datasheet).
+
+        config SPI_NAND_GENERIC_T_PROG_US
+            int "Manual: page program time (us)"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 500
+            range 1 10000
+            help
+                Typical/maximum page program time in microseconds (t_PROG from datasheet).
+
+        config SPI_NAND_GENERIC_T_BERS_US
+            int "Manual: block erase time (us)"
+            depends on SPI_NAND_GENERIC_MANUAL
+            default 3500
+            range 100 50000
+            help
+                Typical/maximum block erase time in microseconds (t_BERS from datasheet).
+
+    endmenu
+
 endmenu
