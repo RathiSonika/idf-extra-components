@@ -113,6 +113,11 @@ esp_err_t spi_nand_zetta_init(spi_nand_flash_device_t *dev);
  */
 esp_err_t spi_nand_xtx_init(spi_nand_flash_device_t *dev);
 
+/**
+ * @brief Initialize ONFI NAND flash
+ */
+esp_err_t spi_nand_onfi_init(spi_nand_flash_device_t *dev);
+
 #ifdef __cplusplus
 }
 #endif

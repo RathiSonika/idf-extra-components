@@ -6,10 +6,14 @@
  * SPDX-FileContributor: 2015-2023 Espressif Systems (Shanghai) CO LTD
  */
 
+#include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include "spi_nand_oper.h"
 #include "driver/spi_master.h"
 #include "esp_memory_utils.h"
+#include "esp_heap_caps.h"
+#include "nand_device_types.h"
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE == 1
 #include "esp_private/esp_cache_private.h"
 #endif
@@ -427,4 +431,126 @@ esp_err_t spi_nand_erase_block(spi_nand_flash_device_t *handle, uint32_t page)
     };
 
     return spi_nand_execute_transaction(handle, &t);
+}
+
+/* Parameter page can be at one of three row addresses depending on vendor (ONFI). */
+static const uint32_t param_page_row_addrs[] = {
+    PARAM_PAGE_ROW_ADDR_1,
+    PARAM_PAGE_ROW_ADDR_2,
+    PARAM_PAGE_ROW_ADDR_3,
+};
+
+static const uint8_t onfi_signature[NAND_PARAM_PAGE_SIGNATURE_LEN] = { 'O', 'N', 'F', 'I' };
+
+static bool is_onfi_signature_valid(const uint8_t *page_data)
+{
+    return memcmp(page_data, onfi_signature, NAND_PARAM_PAGE_SIGNATURE_LEN) == 0;
+}
+
+/**
+ * ONFI CRC-16 over parameter page (bytes 0-253); stored in bytes 254-255.
+ * Polynomial: 0x8005, initial value: 0x4F4E.
+ */
+static uint16_t param_page_crc16(const uint8_t *data, size_t length)
+{
+    const uint16_t poly = 0x8005;
+    uint16_t crc = 0x4F4E;
+
+    for (size_t i = 0; i < length; i++) {
+        crc ^= ((uint16_t)data[i] << 8);
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ poly;
+            } else {
+                crc = crc << 1;
+            }
+        }
+    }
+    return crc;
+}
+
+static bool is_param_page_crc_valid(const uint8_t *page_data)
+{
+    uint16_t computed = param_page_crc16(page_data, NAND_PARAM_PAGE_SIZE - 2);
+    uint16_t stored = (uint16_t)page_data[254] | ((uint16_t)page_data[255] << 8);
+    return computed == stored;
+}
+
+#define PARAM_PAGE_NUM_ADDRS  (sizeof(param_page_row_addrs) / sizeof(param_page_row_addrs[0]))
+
+esp_err_t spi_nand_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t length)
+{
+    esp_err_t ret;
+    uint8_t orig_config = 0;
+
+    ret = spi_nand_read_register(handle, REG_CONFIG, &orig_config);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    uint8_t *probe_buf = (uint8_t *)heap_caps_malloc(256 * 3, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    if (probe_buf == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t new_config = orig_config | REG_CONFIG_OTP_EN;
+    ret = spi_nand_write_register(handle, REG_CONFIG, new_config);
+    if (ret != ESP_OK) {
+        free(probe_buf);
+        return ret;
+    }
+
+    for (int addr = 0; addr < (int)PARAM_PAGE_NUM_ADDRS; addr++) {
+        spi_nand_transaction_t t = {
+            .command = CMD_PAGE_READ,
+            .address_bytes = 3,
+            .address = param_page_row_addrs[addr],
+        };
+        ret = spi_nand_execute_transaction(handle, &t);
+        if (ret != ESP_OK) {
+            goto restore;
+        }
+
+        while (true) {
+            uint8_t status;
+            ret = spi_nand_read_register(handle, REG_STATUS, &status);
+            if (ret != ESP_OK) {
+                goto restore;
+            }
+            if ((status & STAT_BUSY) == 0) {
+                break;
+            }
+        }
+
+        for (int copy = 0; copy < NAND_PARAM_PAGE_COPIES; copy++) {
+            uint16_t column = (uint16_t)(copy * NAND_PARAM_PAGE_SIZE);
+
+            ret = spi_nand_read(handle, probe_buf, column, (uint16_t)NAND_PARAM_PAGE_SIZE);
+            if (ret != ESP_OK) {
+                goto restore;
+            }
+
+            if (!is_onfi_signature_valid(probe_buf)) {
+                continue;
+            }
+            if (!is_param_page_crc_valid(probe_buf)) {
+                continue;
+            }
+
+            uint16_t copy_len = (length >= (uint16_t)NAND_PARAM_PAGE_SIZE)
+                                ? (uint16_t)NAND_PARAM_PAGE_SIZE
+                                : length;
+            memcpy(data, probe_buf, copy_len);
+            ret = ESP_OK;
+            goto restore;
+        }
+    }
+
+    ret = ESP_ERR_INVALID_CRC;
+
+restore:
+    spi_nand_write_register(handle, REG_CONFIG, orig_config);
+    free(probe_buf);
+
+    return ret;
 }

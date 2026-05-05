@@ -241,6 +241,13 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
     return ret;
 }
 
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *source)
+{
+    ESP_RETURN_ON_FALSE(handle != NULL && source != NULL, ESP_ERR_INVALID_ARG, TAG, "Invalid argument");
+    *source = handle->chip_source;
+    return ESP_OK;
+}
+
 // NEW LAYERED ARCHITECTURE API IMPLEMENTATION
 //---------------------------------------------------------------------------------------------------------------------------------------------
 
