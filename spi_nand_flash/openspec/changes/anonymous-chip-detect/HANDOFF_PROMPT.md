@@ -1,14 +1,14 @@
-# Handoff: OpenSpec **implementation steps** for anonymous chip detection (`spi_nand_flash`)
+# Handoff: OpenSpec **implementation milestones** for anonymous chip detection (`spi_nand_flash`)
 
-Copy this file (or the sections below) into a new agent/session to author **ordered, PR-sized step documents** under this folder.
+Copy this file (or the sections below) into a new agent/session to author or refine **ordered, PR-sized milestone documents** under this folder.
 
 ---
 
 ## Goal
 
-Author **ordered, PR-sized step documents** under `spi_nand_flash/openspec/changes/anonymous-chip-detect/` (same style as `openspec/changes/configurable-oob-layout/`: `README.md` step table + `step-01-….md`, `step-02-….md`, …).
+Maintain **ordered milestone documents** under `spi_nand_flash/openspec/changes/anonymous-chip-detect/` (same tone as `openspec/changes/configurable-oob-layout/`: [`README.md`](README.md) milestone table + `step-tier*.md`, `step-tests-*.md`, `step-docs-*.md`).
 
-Do **not** implement C code in this task unless explicitly asked; deliver **step specs** another implementer can execute without guessing.
+Do **not** implement C code in this task unless explicitly asked; deliver **milestone specs** another implementer can execute without guessing.
 
 ---
 
@@ -16,9 +16,9 @@ Do **not** implement C code in this task unless explicitly asked; deliver **step
 
 1. **Feature spec (normative for *what* to build):** [`../../anonymous_chip_detect_proposal.md`](../../anonymous_chip_detect_proposal.md)
 2. **Product intent / tiers:** [`../../RFC_Anonymous_Chip_Detect.md`](../../RFC_Anonymous_Chip_Detect.md) (in-tree RFC mirror; note: RFC OOB snippets may still describe future configurable-OOB behavior — **v1 follows the proposal**, not conflicting RFC OOB sections.)
-3. **Change folder stub:** [`README.md`](README.md) — extend with locked decisions + step index.
+3. **Change folder index:** [`README.md`](README.md) — locked decisions + milestone index + dependency rule.
 4. **Baseline / API stability:** [`../../baseline.md`](../../baseline.md) (especially init path, `include/` stability, Linux target, concurrency).
-5. **Step style reference:** [`../configurable-oob-layout/README.md`](../configurable-oob-layout/README.md) + one or two `step-*.md` examples for tone (acceptance criteria, verification commands, “do not merge if…”).
+5. **Milestone style reference:** [`../configurable-oob-layout/README.md`](../configurable-oob-layout/README.md) + one or two `step-*.md` examples for tone (acceptance criteria, verification commands, “do not merge if…”).
 
 ---
 
@@ -28,7 +28,7 @@ Do **not** implement C code in this task unless explicitly asked; deliver **step
 
 ---
 
-## Locked decisions the steps **must** respect (summary)
+## Locked decisions the milestones **must** respect (summary)
 
 - **Tiers:** Tier 1 fail (unknown mfr **or** known mfr + vendor init fail) → Tier 2 ONFI → Tier 3 manual if enabled; master Kconfig off ⇒ baseline only.
 - **ONFI:** Read parameter page; bytes **0–3 == `ONFI`**; CRC validate; **no** `READ_ID @ 0x20` requirement.
@@ -45,13 +45,9 @@ Do **not** implement C code in this task unless explicitly asked; deliver **step
 
 ## Deliverables
 
-1. Update **[`README.md`](README.md)** with:
-   - Locked decision table (can mirror proposal §5–§7, §10 briefly).
-   - **Ordered step list** with one-line description each.
-   - **Dependency rule:** e.g. do not merge step N+1 if step N acceptance fails.
-   - **Conventions:** branch naming, max diff size target (~500–700 LOC meaningful diff per PR where possible), touch only `spi_nand_flash/` + `test_app/` + `host_test/` as appropriate; **do not** modify vendored Dhara unless a step explicitly requires it (prefer avoid).
+1. **[`README.md`](README.md)** — locked decision table, **Tier 1 → Tier 2 → Tier 3 → Tests → Docs** index, dependency rule, conventions (branch naming, ~500–700 LOC per PR where possible; **Tier 2** may split into two PRs per milestone doc).
 
-2. Create **`step-01-….md` through `step-N-….md`** — each step must include:
+2. **One milestone file per row** — each must include:
    - **Scope** (files/modules).
    - **Out of scope** (explicit).
    - **Acceptance criteria** (checklist).
@@ -60,27 +56,22 @@ Do **not** implement C code in this task unless explicitly asked; deliver **step
 
 ---
 
-## Suggested step split (adjust after reading tree; keep PR-sized)
+## Milestone split (normative layout)
 
-Indicative sequence — **rename/split** as needed after inspecting current `master` vs POC:
+| Milestone | Typical contents |
+|-----------|------------------|
+| **Tier 1** | Kconfig + CMake; internal `chip_source`; `nand_init_device` Tier 1 only; transitional `ESP_ERR_NOT_FOUND` after Tier 1 fail when anonymous on until Tier 2 exists |
+| **Tier 2** | `priv_include` ONFI types + CRC; SPI param page read; parse/init; `nand_init_device` ONFI branch + logging |
+| **Tier 3** | Manual Kconfig + init; `spi_nand_chip_source_t` + `spi_nand_get_chip_source` |
+| **Tests** | `test_app` CI preset + pytest + §10.C procedure; `host_test` CRC + Linux §10.D |
+| **Docs** | Component README / CHANGELOG |
 
-1. Kconfig + CMake gates (default **off**; no runtime behavior change).
-2. Private types: `nand_parameter_page_t`, CRC helper, constants — `priv_include/` only.
-3. SPI layer: parameter page read primitive(s) + bounded heap (§5.7); unit-testable CRC (§10.A).
-4. ONFI init module: parse fields per proposal; `num_luns` check; **no** spare→geometry; SIO-only (§5.6); internal anonymous flag + `chip_source`.
-5. `nand_init_device` integration: tier ordering + `ESP_ERR_NOT_FOUND` + logging.
-6. Manual tier: second Kconfig + validation + init path.
-7. Public API: `spi_nand_chip_source_t`, `spi_nand_get_chip_source` in `include/spi_nand_flash.h` + `nand.c` implementation.
-8. **test_app:** `sdkconfig.ci.anonymous`, pytest matrix, on-target cases as feasible (§10.B/C).
-9. **host_test:** CRC tests + Linux “no anonymous SPI” assertion (§10.A/D).
-10. Docs: README/CHANGELOG; pointer to RFC + proposal.
-
-Merge **§10.C** (hardware evidence) into the step that first claims “feature complete” or add a dedicated **“hardware sign-off”** step if your process requires it.
+Adjust file names or split **Tier 2** across two PRs only if review load requires it; keep **one** normative **Tier 2** milestone doc as the contract.
 
 ---
 
 ## Output quality bar
 
-Another agent should implement **only** from these step files + the proposal + RFC, **without** re-deriving policy. Any ambiguity left in steps should be resolved by **citing** `anonymous_chip_detect_proposal.md` section numbers.
+Another agent should implement **only** from these milestone files + the proposal + RFC, **without** re-deriving policy. Any ambiguity left in milestones should be resolved by **citing** `anonymous_chip_detect_proposal.md` section numbers.
 
-Once `step-01-…` through `step-10-…` exist, use **[`IMPLEMENTATION_PROMPT.md`](IMPLEMENTATION_PROMPT.md)** as the copy-paste handoff for **coding** those steps (not this file).
+Use **[`IMPLEMENTATION_PROMPT.md`](IMPLEMENTATION_PROMPT.md)** as the copy-paste handoff for **coding** these milestones (not this file).

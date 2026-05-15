@@ -10,7 +10,7 @@
 
 **Ordering vs configurable OOB:** Ship anonymous detection on the **baseline** fixed **4-byte** marker model at column `page_size` (`nand_impl.c`); RFC OOB snippets that assume configurable spare maps **do not** apply to v1 — see proposal §5.2 (spare row), §5.4, header independence note.
 
-**Handoff for agents:** [`HANDOFF_PROMPT.md`](HANDOFF_PROMPT.md) (author step docs) · [`IMPLEMENTATION_PROMPT.md`](IMPLEMENTATION_PROMPT.md) (execute steps 01–10 in code)
+**Handoff for agents:** [`HANDOFF_PROMPT.md`](HANDOFF_PROMPT.md) (author step docs) · [`IMPLEMENTATION_PROMPT.md`](IMPLEMENTATION_PROMPT.md) (execute tier milestones in code)
 
 ---
 
@@ -39,39 +39,34 @@ Summarized from proposal §5–§7 and §10; normative detail stays in [`../../a
 
 ## Conventions for every PR
 
-1. **Branch naming:** e.g. `feat/anonymous-chip-step-03-param-page-spi` (team convention may vary).
-2. **Touch surface:** Prefer **`spi_nand_flash/`** (`Kconfig`, `CMakeLists.txt`, `src/`, `include/`, `priv_include/`) plus **`test_app/`** and **`host_test/`** as each step specifies. Do **not** modify vendored **Dhara** unless a step explicitly requires it (prefer avoid; proposal does not require Dhara edits for anonymous init).
+1. **Branch naming:** e.g. `feat/anonymous-chip-tier1-foundation`, `feat/anonymous-chip-tier2-onfi` (team convention may vary).
+2. **Touch surface:** Prefer **`spi_nand_flash/`** (`Kconfig`, `CMakeLists.txt`, `src/`, `include/`, `priv_include/`) plus **`test_app/`** and **`host_test/`** as each milestone specifies. Do **not** modify vendored **Dhara** unless a milestone explicitly requires it (prefer avoid; proposal does not require Dhara edits for anonymous init).
 3. **Kconfig off:** **`CONFIG_NAND_FLASH_ANONYMOUS_DETECT=n`** ⇒ no Tier 2/3 runtime behavior; binary/behavior aligned with pre-change baseline for init failure codes when anonymous was absent.
-4. **Line-count target:** Aim for **~500–700 LOC** meaningful diff per PR; split steps if a change balloons.
+4. **Line-count target:** Aim for **~500–700 LOC** meaningful diff per PR; if **Tier 2** is too large for one review, split into two stacked PRs (e.g. ONFI library without `nand_init_device` hook, then init integration) while keeping a single milestone doc as the contract.
 5. **Path links in step docs:** From `openspec/changes/anonymous-chip-detect/`, **`../../../`** = component root (`spi_nand_flash/`), **`../../`** = `openspec/`.
 
 ---
 
 ## Dependency rule
 
-**Do not merge step N+1 if step N’s acceptance criteria fail.** Implement steps **01 → 10** in order unless a step doc explicitly marks an optional parallel track (none by default).
+**Do not merge the next milestone if the previous milestone’s acceptance criteria fail.** Implement in order:
 
 ```text
-01 ─► 02 ─► 03 ─► 04 ─► 05 ─► 06 ─► 07 ─► 08 ─► 09 ─► 10
+Tier1 ─► Tier2 ─► Tier3 ─► Tests ─► Docs
 ```
 
-Steps **08** (CI matrix + on-target smoke where feasible) and **09** (host CRC + Linux §10.D) may be **one combined PR** only if the combined diff stays reviewable; otherwise keep separate.
+**Tests** may be **one combined PR** with **Tier 3** only if the diff stays reviewable; otherwise keep **Tier 3** then **Tests** as separate merges.
 
 ---
 
-## Ordered steps
+## Ordered milestones
 
-| Step | Document | Short description |
-|------|----------|-------------------|
-| **01** | [step-01-kconfig-and-cmake-gates.md](step-01-kconfig-and-cmake-gates.md) | Master + manual Kconfig, CMake source gates; **no** runtime behavior change |
-| **02** | [step-02-priv-types-onfi-crc.md](step-02-priv-types-onfi-crc.md) | `priv_include/`: packed parameter page layout, CRC API declaration, ONFI constants |
-| **03** | [step-03-spi-parameter-page-read.md](step-03-spi-parameter-page-read.md) | Target SPI: read parameter page primitive(s); bounded heap §5.7; no init integration |
-| **04** | [step-04-onfi-parse-and-init-module.md](step-04-onfi-parse-and-init-module.md) | Parse/validate ONFI fields; `num_luns==1`; populate geometry/delays; SIO-only; internal `chip_source` + anonymous flag |
-| **05** | [step-05-nand-init-device-tier-integration.md](step-05-nand-init-device-tier-integration.md) | `nand_init_device`: tier ordering, `ESP_ERR_NOT_FOUND`, Tier 1 `chip_source` = DATABASE |
-| **06** | [step-06-manual-tier-kconfig-and-init.md](step-06-manual-tier-kconfig-and-init.md) | Tier 3: Kconfig geometry/delays, validation, `ESP_ERR_INVALID_ARG` on bad combos |
-| **07** | [step-07-public-api-chip-source.md](step-07-public-api-chip-source.md) | `spi_nand_chip_source_t`, `spi_nand_get_chip_source` in `include/spi_nand_flash.h` + `nand.c` |
-| **08** | [step-08-test-app-ci-and-hardware-evidence.md](step-08-test-app-ci-and-hardware-evidence.md) | `sdkconfig.ci.anonymous`, pytest matrix, §10.B/C procedure |
-| **09** | [step-09-host-test-crc-and-linux-parity.md](step-09-host-test-crc-and-linux-parity.md) | §10.A CRC vectors; §10.D Linux anonymous-off parity |
-| **10** | [step-10-docs-and-changelog.md](step-10-docs-and-changelog.md) | README / CHANGELOG; pointers to proposal + RFC |
+| Milestone | Document | Short description |
+|-----------|----------|-------------------|
+| **Tier 1** | [step-tier1-foundation-and-database-path.md](step-tier1-foundation-and-database-path.md) | Kconfig + CMake gates; internal `chip_source`; `nand_init_device` Tier 1 only — **no** ONFI/manual/public API (proposal §5.1 Tier 1, §6, §8) |
+| **Tier 2** | [step-tier2-onfi.md](step-tier2-onfi.md) | Private ONFI types + CRC; SPI parameter page read; parse/init module; `nand_init_device` calls ONFI after Tier 1 failure (proposal §5.2, §5.6–§5.7, §9) |
+| **Tier 3** | [step-tier3-manual-and-public-api.md](step-tier3-manual-and-public-api.md) | Manual Kconfig + Tier 3 init; `spi_nand_chip_source_t` + `spi_nand_get_chip_source` (proposal §5.3, §7) |
+| **Tests** | [step-tests-ci-host-linux.md](step-tests-ci-host-linux.md) | `test_app` CI preset + pytest + §10.C procedure; `host_test` CRC vectors + Linux §10.D (proposal §10) |
+| **Docs** | [step-docs-and-changelog.md](step-docs-and-changelog.md) | Component README / CHANGELOG; pointers to proposal + RFC |
 
-Ordered step documents (`step-01-…` through `step-10-…`) follow the tone of [`../configurable-oob-layout/`](../configurable-oob-layout/) (scope, non-goals, acceptance, verification). This epic does **not** depend on configurable OOB layout work.
+Milestone documents follow the tone of [`../configurable-oob-layout/`](../configurable-oob-layout/) (scope, non-goals, acceptance, verification). This epic does **not** depend on configurable OOB layout work.
