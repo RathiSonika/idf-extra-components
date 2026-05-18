@@ -222,6 +222,31 @@ esp_err_t spi_nand_flash_get_block_num(spi_nand_flash_device_t *handle, uint32_t
     return ESP_OK;
 }
 
+static spi_nand_chip_source_t map_chip_source(nand_chip_source_t src)
+{
+    switch (src) {
+    case NAND_CHIP_SOURCE_ONFI:
+        return SPI_NAND_CHIP_SOURCE_ONFI;
+    case NAND_CHIP_SOURCE_MANUAL:
+        return SPI_NAND_CHIP_SOURCE_MANUAL;
+    case NAND_CHIP_SOURCE_DATABASE:
+    default:
+        return SPI_NAND_CHIP_SOURCE_DATABASE;
+    }
+}
+
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out)
+{
+    ESP_RETURN_ON_FALSE(handle != NULL && out != NULL, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(handle->mutex != NULL, ESP_ERR_INVALID_STATE, TAG, "device not initialized");
+
+    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    *out = map_chip_source(handle->chip_source);
+    xSemaphoreGive(handle->mutex);
+
+    return ESP_OK;
+}
+
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
 {
     esp_err_t ret = ESP_OK;

@@ -48,6 +48,63 @@ menu "SPI NAND Flash configuration"
         help
             When enabled together with anonymous detection, user-supplied page geometry
             and timing values from Kconfig are used if database and ONFI paths fail.
-            All values must match the attached part datasheet.
+            All values must match the attached part datasheet. Defaults are invalid until
+            you set each field from the datasheet (init returns ESP_ERR_INVALID_ARG).
+
+    if NAND_FLASH_ANONYMOUS_MANUAL
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_PAGE_SIZE
+            int "Manual: page size in bytes"
+            default 0
+            range 0 8192
+            help
+                Data bytes per page from the chip datasheet. Must be a power of two
+                (e.g. 2048, 4096). Default 0 is rejected at init until configured.
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_PAGES_PER_BLOCK
+            int "Manual: pages per block"
+            default 0
+            range 0 256
+            help
+                Pages per block from the datasheet. Must be a power of two (e.g. 64).
+                Default 0 is rejected at init until configured.
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_NUM_BLOCKS
+            int "Manual: number of blocks"
+            default 0
+            range 0 65536
+            help
+                Total block count from the datasheet. Default 0 is rejected at init.
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_NUM_PLANES
+            int "Manual: number of planes"
+            default 1
+            range 1 4
+            help
+                Plane count from the datasheet (1 or 2 for typical SPI NAND). Values
+                greater than 1 enable read/program plane-select column addressing.
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_T_R_US
+            int "Manual: page read time (us)"
+            default 0
+            range 0 100000
+            help
+                Maximum typical page read time in microseconds (t_R).
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_T_PROG_US
+            int "Manual: page program time (us)"
+            default 0
+            range 0 100000
+            help
+                Maximum typical page program time in microseconds (t_PROG).
+
+        config NAND_FLASH_ANONYMOUS_MANUAL_T_BERS_US
+            int "Manual: block erase time (us)"
+            default 0
+            range 0 1000000
+            help
+                Maximum typical block erase time in microseconds (t_BERS).
+
+    endif
 
 endmenu

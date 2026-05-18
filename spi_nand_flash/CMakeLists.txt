@@ -45,6 +45,9 @@ else()
         list(APPEND srcs "src/nand_onfi_read.c"
                          "src/nand_onfi.c"
                          "src/nand_onfi_crc.c")
+        if(CONFIG_NAND_FLASH_ANONYMOUS_MANUAL)
+            list(APPEND srcs "src/nand_anonymous_manual.c")
+        endif()
     endif()
 endif()
 
