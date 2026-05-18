@@ -15,6 +15,9 @@
 #include "nand_device_types.h"
 #if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
 #include "nand_onfi.h"
+#if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
+#include "nand_anonymous_manual.h"
+#endif
 #endif
 
 #define ROM_WAIT_THRESHOLD_US 1000
@@ -107,13 +110,18 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
         ret = nand_onfi_try_init(*handle);
         if (ret != ESP_OK) {
 #if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
-            /* Tier 3 manual fallback — later milestone */
-            ret = ESP_ERR_NOT_FOUND;
+            ret = nand_anonymous_manual_try_init(*handle);
+            if (ret != ESP_OK && ret != ESP_ERR_INVALID_ARG) {
+                ret = ESP_ERR_NOT_FOUND;
+            }
 #else
             ret = ESP_ERR_NOT_FOUND;
 #endif
-        } else if (((*handle)->config.io_mode == SPI_NAND_IO_MODE_QOUT
-                    || (*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO)) {
+        }
+        if (ret == ESP_OK
+                && ((*handle)->chip_detection_flags & SPI_NAND_CHIP_FLAG_ANONYMOUS)
+                && (((*handle)->config.io_mode == SPI_NAND_IO_MODE_QOUT)
+                    || ((*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO))) {
             ESP_LOGW(TAG, "Anonymous chip uses SIO only; QOUT/QIO was not enabled");
         }
 #else

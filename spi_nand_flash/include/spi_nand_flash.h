@@ -26,6 +26,12 @@ extern "C" {
 
 typedef struct spi_nand_flash_device_t spi_nand_flash_device_t;
 
+/** @brief How the attached NAND chip geometry was established at init */
+typedef enum {
+    SPI_NAND_CHIP_SOURCE_DATABASE = 0,
+    SPI_NAND_CHIP_SOURCE_ONFI,
+    SPI_NAND_CHIP_SOURCE_MANUAL,
+} spi_nand_chip_source_t;
 
 #ifdef CONFIG_IDF_TARGET_LINUX
 #include "nand_linux_mmap_emul.h"
@@ -211,6 +217,17 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
  * @return ESP_OK on success, or a flash error code if the de-initialization failed.
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
+
+/**
+ * @brief Get how chip geometry was detected during init.
+ *
+ * @param handle Initialized device handle from spi_nand_flash_init_device() or
+ *               spi_nand_flash_init_with_layers().
+ * @param[out] out Source of geometry (database table, ONFI parameter page, or manual Kconfig).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or out is NULL,
+ *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
+ */
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API
