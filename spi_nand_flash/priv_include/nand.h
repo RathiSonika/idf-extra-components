@@ -31,6 +31,15 @@ extern "C" {
 #define NAND_FLAG_HAS_PROG_PLANE_SELECT       BIT(0)
 #define NAND_FLAG_HAS_READ_PLANE_SELECT       BIT(1)
 
+/** Set when geometry was not established from the vendor database (ONFI or manual path). */
+#define SPI_NAND_CHIP_FLAG_ANONYMOUS          BIT(0)
+
+typedef enum {
+    NAND_CHIP_SOURCE_DATABASE = 0,
+    NAND_CHIP_SOURCE_ONFI,
+    NAND_CHIP_SOURCE_MANUAL,
+} nand_chip_source_t;
+
 // Legacy typedef for compatibility - now uses nand_flash_geometry_t internally
 typedef nand_flash_geometry_t spi_nand_chip_t;
 
@@ -52,6 +61,8 @@ struct spi_nand_flash_device_t {
     spi_nand_flash_config_t config;
     spi_nand_chip_t chip;                  // Geometry (legacy typedef for nand_flash_geometry_t)
     nand_device_info_t device_info;        // Device identification (manufacturer, device ID, chip name)
+    nand_chip_source_t chip_source;
+    uint8_t chip_detection_flags;
     const spi_nand_ops *ops;
     void *ops_priv_data;
     uint8_t *work_buffer;

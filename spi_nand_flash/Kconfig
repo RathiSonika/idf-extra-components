@@ -32,4 +32,22 @@ menu "SPI NAND Flash configuration"
         help
             This option enables gathering host test statistics and SPI NAND flash wear levelling simulation.
 
+    config NAND_FLASH_ANONYMOUS_DETECT
+        bool "Enable anonymous SPI NAND chip detection"
+        depends on !IDF_TARGET_LINUX
+        default n
+        help
+            When enabled, chip init tries the vendor database first, then falls back to
+            ONFI parameter page read and optional manual geometry (see dependent options).
+            When disabled, init behavior matches a database-only build (smaller binary).
+
+    config NAND_FLASH_ANONYMOUS_MANUAL
+        bool "Enable manual geometry fallback for unknown chips"
+        depends on NAND_FLASH_ANONYMOUS_DETECT
+        default n
+        help
+            When enabled together with anonymous detection, user-supplied page geometry
+            and timing values from Kconfig are used if database and ONFI paths fail.
+            All values must match the attached part datasheet.
+
 endmenu

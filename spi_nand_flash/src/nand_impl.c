@@ -95,8 +95,19 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->chip_source = NAND_CHIP_SOURCE_DATABASE;
+    (*handle)->chip_detection_flags = 0;
 
-    ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ret = detect_chip(*handle);
+    if (ret != ESP_OK) {
+        if (CONFIG_NAND_FLASH_ANONYMOUS_DETECT) {
+            ret = ESP_ERR_NOT_FOUND;
+            goto fail;
+        }
+        ESP_LOGE(TAG, "Failed to detect nand chip");
+        goto fail;
+    }
+
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)

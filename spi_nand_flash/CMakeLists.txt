@@ -38,6 +38,10 @@ else()
     else()
         list(APPEND reqs driver)
     endif()
+
+    if(CONFIG_NAND_FLASH_ANONYMOUS_DETECT)
+        # Anonymous-only sources (ONFI, manual init) are added in later tiers.
+    endif()
 endif()
 
 
