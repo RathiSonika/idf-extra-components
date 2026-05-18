@@ -40,7 +40,9 @@ else()
     endif()
 
     if(CONFIG_NAND_FLASH_ANONYMOUS_DETECT)
-        # Anonymous-only sources (ONFI, manual init) are added in later tiers.
+        list(APPEND srcs "src/nand_onfi_read.c"
+                         "src/nand_onfi.c"
+                         "src/nand_onfi_crc.c")
     endif()
 endif()
 
