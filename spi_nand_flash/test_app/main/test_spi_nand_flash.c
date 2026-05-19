@@ -342,6 +342,21 @@ TEST_CASE("verify nand_prog, nand_read, nand_copy, nand_is_free works (bypassing
 }
 */
 
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+TEST_CASE("database chip reports DATABASE chip source when anonymous detect enabled", "[spi_nand_flash]")
+{
+    spi_nand_flash_device_t *nand_flash_device_handle;
+    spi_device_handle_t spi;
+    setup_nand_flash(&nand_flash_device_handle, &spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX);
+
+    spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_ONFI;
+    TEST_ESP_OK(spi_nand_get_chip_source(nand_flash_device_handle, &source));
+    TEST_ASSERT_EQUAL(SPI_NAND_CHIP_SOURCE_DATABASE, source);
+
+    deinit_nand_flash(nand_flash_device_handle, spi);
+}
+#endif
+
 TEST_CASE("Fail safe test if chip is not detected", "[spi_nand_flash]")
 {
     spi_device_handle_t spi;

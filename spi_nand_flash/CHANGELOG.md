@@ -2,6 +2,15 @@
 
 Versioning policy: see [VERSIONING.md](VERSIONING.md). From **v1.0.0** onward this component follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0]
+### New Features
+- **Anonymous chip detection (opt-in):** Tiered init fallback after the vendor database — ONFI parameter page (signature + CRC, single-LUN) and optional manual geometry from Kconfig. Master gate `CONFIG_NAND_FLASH_ANONYMOUS_DETECT` (default **off**); Tier 3 `CONFIG_NAND_FLASH_ANONYMOUS_MANUAL` (default **off**). Not available on the Linux host target.
+- **`spi_nand_get_chip_source()`** and **`spi_nand_chip_source_t`** to report whether geometry came from the database, ONFI, or manual Kconfig.
+
+### Notes
+- Tier 2/3 paths use SIO only; QOUT/QIO requests log a warning. OOB remains the baseline 4-byte markers at `page_size` (ONFI spare size is not applied in v1).
+- No breaking API changes; default builds match pre-feature behavior when anonymous detection is disabled.
+
 ## [1.0.3]
 ### Dependencies
 - **Dhara** is now consumed as the in-repo `espressif/dhara` component at **1.0.0** (vendored upstream snapshot; the git submodule under `dhara/` is removed). The manifest dependency range is **`1.*`** (was `0.1.*`), matching the new component version with the same `override_path: "../dhara"` layout.

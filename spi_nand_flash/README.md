@@ -73,6 +73,34 @@ At present, `spi_nand_flash` component is compatible with the chips produced by 
 * Zetta - ZD35Q1GC
 * XTX - XT26G08D
 
+## Anonymous chip detection (opt-in)
+
+By default the driver only initializes parts in the table above (**Tier 1 — database**). Optional anonymous detection helps bring up **unknown** SPI NAND parts when you accept extra validation risk. It is **disabled by default** (`CONFIG_NAND_FLASH_ANONYMOUS_DETECT=n`).
+
+**Detection order** (when the master option is enabled):
+
+1. **Tier 1 — Database** — Same as today: manufacturer ID and vendor-specific init. No extra SPI traffic on success.
+2. **Tier 2 — ONFI** — After Tier 1 fails: read the ONFI parameter page (signature bytes 0–3 must be `ONFI`, CRC validated). **Single-LUN only** (`num_luns == 1`); multi-LUN parts fail this tier.
+3. **Tier 3 — Manual** — After Tier 2 fails, only if `CONFIG_NAND_FLASH_ANONYMOUS_MANUAL=y`: geometry and delays from menuconfig (`NAND_FLASH_ANONYMOUS_MANUAL_*`). All fields must be set from the datasheet (zero defaults are rejected at init).
+
+If every applicable tier fails, init returns `ESP_ERR_NOT_FOUND`. With anonymous detection **off**, Tier 1 failure behavior is unchanged from earlier releases.
+
+**Kconfig** (Component config → SPI NAND Flash configuration):
+
+| Symbol | Default | Role |
+|--------|---------|------|
+| `CONFIG_NAND_FLASH_ANONYMOUS_DETECT` | `n` | Master gate for Tier 2 and Tier 3 |
+| `CONFIG_NAND_FLASH_ANONYMOUS_MANUAL` | `n` | Tier 3 manual geometry (requires master `y`) |
+
+**Public API:** After init, call `spi_nand_get_chip_source()` to learn whether geometry came from the database, ONFI, or manual Kconfig (`spi_nand_chip_source_t` in `spi_nand_flash.h`).
+
+**Limitations (v1):**
+
+- **I/O mode:** Tier 2 and Tier 3 use **SIO only** (no quad enable). If you request QOUT/QIO in `spi_nand_flash_config_t`, the driver logs a warning and stays on SIO.
+- **Filesystem safety:** Anonymous modes do not add new Dhara/FTL guarantees beyond existing behavior. Treat ONFI and manual paths as **bring-up only** until verified on hardware.
+
+**Production guidance:** Prefer parts in the supported list (Tier 1). For Tier 2/3 success the driver emits **`ESP_LOGW`** reminding you to confirm geometry against the datasheet.
+
 ## FATFS Integration
 
 For FATFS filesystem support, use the separate [`spi_nand_flash_fatfs`](../spi_nand_flash_fatfs) component:
