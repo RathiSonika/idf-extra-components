@@ -18,6 +18,7 @@ endif()
 if(${target} STREQUAL "linux")
     list(APPEND srcs "src/nand_impl_linux.c"
                      "src/nand_linux_mmap_emul.c"
+                     "src/nand_onfi_crc.c"
                      "src/spi_nand_flash_test_helpers.c")
 else()
     list(APPEND srcs "src/devices/nand_winbond.c"
@@ -37,6 +38,15 @@ else()
         list(APPEND reqs esp_driver_spi)
     else()
         list(APPEND reqs driver)
+    endif()
+
+    list(APPEND srcs "src/nand_onfi_crc.c")
+    if(CONFIG_NAND_FLASH_ANONYMOUS_DETECT)
+        list(APPEND srcs "src/nand_onfi_read.c"
+                         "src/nand_onfi.c")
+        if(CONFIG_NAND_FLASH_ANONYMOUS_MANUAL)
+            list(APPEND srcs "src/nand_anonymous_manual.c")
+        endif()
     endif()
 endif()
 

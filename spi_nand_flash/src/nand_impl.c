@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * SPDX-FileContributor: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2015-2026 Espressif Systems (Shanghai) CO LTD
  */
 
 #include <string.h>
@@ -13,6 +13,12 @@
 #include "nand.h"
 #include "nand_flash_devices.h"
 #include "nand_device_types.h"
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+#include "nand_onfi.h"
+#if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
+#include "nand_anonymous_manual.h"
+#endif
+#endif
 
 #define ROM_WAIT_THRESHOLD_US 1000
 
@@ -95,8 +101,38 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->chip_source = NAND_CHIP_SOURCE_DATABASE;
+    (*handle)->chip_detection_flags = 0;
 
-    ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ret = detect_chip(*handle);
+    if (ret != ESP_OK) {
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+        ret = nand_onfi_try_init(*handle);
+        if (ret != ESP_OK) {
+#if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
+            ret = nand_anonymous_manual_try_init(*handle);
+            if (ret != ESP_OK && ret != ESP_ERR_INVALID_ARG) {
+                ret = ESP_ERR_NOT_FOUND;
+            }
+#else
+            ret = ESP_ERR_NOT_FOUND;
+#endif
+        }
+        if (ret == ESP_OK
+                && ((*handle)->chip_detection_flags & SPI_NAND_CHIP_FLAG_ANONYMOUS)
+                && (((*handle)->config.io_mode == SPI_NAND_IO_MODE_QOUT)
+                    || ((*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO))) {
+            ESP_LOGW(TAG, "Anonymous chip uses SIO only; QOUT/QIO was not enabled");
+        }
+#else
+        ESP_LOGE(TAG, "Failed to detect nand chip");
+        goto fail;
+#endif
+        if (ret != ESP_OK) {
+            goto fail;
+        }
+    }
+
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
