@@ -50,6 +50,11 @@ typedef struct spi_nand_transaction_t spi_nand_transaction_t;
 #define REG_CONFIG          0xB0
 #define REG_STATUS          0xC0
 
+#define REG_CONFIG_OTP_EN   (1 << 6)
+#define PARAM_PAGE_ROW_ADDR_1 0x000000
+#define PARAM_PAGE_ROW_ADDR_2 0x000001
+#define PARAM_PAGE_ROW_ADDR_3 0x000004
+
 #define STAT_BUSY           1 << 0
 #define STAT_WRITE_ENABLED  1 << 1
 #define STAT_ERASE_FAILED   1 << 2
@@ -71,6 +76,7 @@ esp_err_t spi_nand_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t
 esp_err_t spi_nand_program_execute(spi_nand_flash_device_t *handle, uint32_t page);
 esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *data, uint16_t column, uint16_t length);
 esp_err_t spi_nand_erase_block(spi_nand_flash_device_t *handle, uint32_t page);
+esp_err_t spi_nand_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t length);
 
 #ifdef __cplusplus
 }
