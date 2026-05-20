@@ -1,0 +1,18 @@
+menu "SPI NAND BDL example configuration"
+
+    config EXAMPLE_FORMAT_IF_MOUNT_FAILED
+        bool "Format the flash if mount failed"
+        default n
+        help
+            If set, format_if_mount_failed is true and the volume is formatted when mount fails.
+
+    config EXAMPLE_FORMAT_BEFORE_MOUNT
+        bool "Format the volume before mount (explicit mkfs)"
+        default n
+        help
+            If set, the example registers the WL BDL with FatFS diskio, runs esp_vfs_fat_format_drive()
+            using the same esp_vfs_fat_mount_config_t (allocation unit, FAT count), then unregisters
+            before calling esp_vfs_fat_bdl_mount(). Use this to force a filesystem layout that matches
+            your mount_config without relying on format_if_mount_failed.
+
+endmenu
