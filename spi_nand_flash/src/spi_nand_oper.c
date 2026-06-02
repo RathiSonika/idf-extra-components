@@ -374,9 +374,6 @@ esp_err_t spi_nand_read_sio(spi_nand_flash_device_t *handle, uint8_t *data, uint
 
 esp_err_t spi_nand_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length)
 {
-    if (handle->chip_detection_flags & SPI_NAND_CHIP_FLAG_ANONYMOUS) {
-        return spi_nand_fast_read(handle, data, column, length);
-    }
     if (handle->config.io_mode == SPI_NAND_IO_MODE_DOUT || handle->config.io_mode == SPI_NAND_IO_MODE_DIO) {
         return spi_nand_dual_read(handle, data, column, length);
     } else if (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT || handle->config.io_mode == SPI_NAND_IO_MODE_QIO) {
@@ -400,8 +397,7 @@ esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *
 {
     uint8_t cmd = CMD_PROGRAM_LOAD;
     uint32_t spi_flags = 0;
-    if (!(handle->chip_detection_flags & SPI_NAND_CHIP_FLAG_ANONYMOUS)
-            && (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT || handle->config.io_mode == SPI_NAND_IO_MODE_QIO)) {
+    if (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT || handle->config.io_mode == SPI_NAND_IO_MODE_QIO) {
         cmd = CMD_PROGRAM_LOAD_X4;
         spi_flags = SPI_TRANS_MODE_QIO;
     }
