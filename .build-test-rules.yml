@@ -109,3 +109,8 @@ spi_nand_flash_fatfs/examples/nand_flash_bdl:
   disable:
     - if: IDF_VERSION_MAJOR < 6 or (IDF_VERSION_MAJOR == 6 and IDF_VERSION_MINOR < 1)
       reason: BDL FatFS example uses esp_vfs_fat_bdl_mount / diskio_bdl, available from ESP-IDF v6.1+.
+
+spi_nand_flash_littlefs/examples/nand_flash_bdl_littlefs:
+  disable:
+    - if: IDF_VERSION_MAJOR < 6
+      reason: LittleFS blockdev integration requires esp_blockdev and joltwallet/littlefs >= 1.21.0, available from IDF v6.0.

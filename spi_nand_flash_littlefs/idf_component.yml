@@ -1,0 +1,15 @@
+version: "1.0.0"
+description: "LittleFS integration for SPI NAND Flash via esp_blockdev"
+url: https://github.com/espressif/idf-extra-components/tree/master/spi_nand_flash_littlefs
+issues: https://github.com/espressif/idf-extra-components/issues
+repository: https://github.com/espressif/idf-extra-components.git
+documentation: https://github.com/espressif/idf-extra-components/tree/master/spi_nand_flash_littlefs/README.md
+
+dependencies:
+  idf:
+    version: ">=6.0"
+  espressif/spi_nand_flash:
+    version: "*"
+    override_path: "../spi_nand_flash"
+  joltwallet/littlefs:
+    version: ">=1.21.0"

@@ -629,9 +629,9 @@ uses FATFS with NAND flash:
 1. Add `spi_nand_flash_fatfs` as a dependency in your `idf_component.yml`.
 2. Include headers from `spi_nand_flash_fatfs` instead of the old unified headers.
 3. Use **`spi_nand_flash_init_device()`** and keep **`CONFIG_NAND_FLASH_ENABLE_BDL` disabled**.
-   When BDL is enabled, `spi_nand_flash_init_device()` returns `ESP_ERR_NOT_SUPPORTED`. **This release does not
-   provide FatFs on top of the wear-leveling BDL** (`esp_blockdev_t`); that will be added in a
-   future component update.
+   When BDL is enabled, `spi_nand_flash_init_device()` returns `ESP_ERR_NOT_SUPPORTED`. **FatFs on top of the
+   wear-leveling BDL** (`esp_blockdev_t`) is not provided by `spi_nand_flash_fatfs`; use
+   **`spi_nand_flash_littlefs`** for LittleFS on the BDL instead (ESP-IDF 6.0+, `joltwallet/littlefs` >= 1.21.0).
 4. Aside from the component split and the BDL constraint above, FatFs usage matches 0.x
    (same mount helpers and diskio behavior).
 
@@ -655,8 +655,8 @@ New projects are encouraged to use the Block Device Layer API, which provides:
   for most workloads prefer the **wear-leveling** BDL (Dhara FTL: wear leveling, bad-block
   management, logical sectors). Raw flash BDL is mainly for diagnostics, bring-up etc.
 - Advanced diagnostics operations (ECC stats, bad block tracking)
-- Integration with consumers of **`esp_blockdev_t`** (this release does **not** include
-  FatFs-on-BDL for SPI NAND; use **`spi_nand_flash_fatfs`** with BDL off for FatFs)
+- Integration with consumers of **`esp_blockdev_t`** (use **`spi_nand_flash_littlefs`** for LittleFS on BDL;
+  use **`spi_nand_flash_fatfs`** with BDL off for legacy FatFs)
 - Fine-grained control over layers
 
 ### Enabling BDL Support
