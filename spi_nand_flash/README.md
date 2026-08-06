@@ -77,7 +77,9 @@ At present, `spi_nand_flash` component is compatible with the chips produced by 
 
 **GigaDevice voltage classes:** Parts ending in **UExxG** are rated for 2.7–3.6 V and are suitable for typical ESP32 3.3 V SPI designs. Parts ending in **RExxG** are rated for 1.7–2.0 V and are not recommended for direct connection to 3.3 V ESP GPIO/SPI without level shifting and a 1.8 V supply. Some `RExx` variants remain in the driver from earlier releases for backward compatibility; new additions target the 3.3 V `UExx` parts only (for example, **GD5F4GM7UExxG**, not GD5F4GM7RExxG).
 
-## FATFS Integration
+## Filesystem Integration
+
+### FATFS (legacy API)
 
 Use the separate [`spi_nand_flash_fatfs`](../spi_nand_flash_fatfs) component for filesystem examples and helpers:
 
@@ -86,6 +88,13 @@ Use the separate [`spi_nand_flash_fatfs`](../spi_nand_flash_fatfs) component for
 2. **BDL + FatFS (ESP-IDF 6.1+, `CONFIG_NAND_FLASH_ENABLE_BDL=y`):** `spi_nand_flash_init_with_layers()` and ESP-IDF’s **`esp_vfs_fat_bdl_mount()`** / **`esp_vfs_fat_bdl_unmount()`** (generic `diskio_bdl`; does not use `esp_vfs_fat_nand_*`). See **`spi_nand_flash_fatfs/examples/nand_flash_bdl`**.
 
 Details and Kconfig rules: [`spi_nand_flash_fatfs/README.md`](../spi_nand_flash_fatfs/README.md).
+
+### LittleFS (Block Device Layer)
+
+For LittleFS on the wear-leveling block device, use [`spi_nand_flash_littlefs`](../spi_nand_flash_littlefs):
+- Requires ESP-IDF 6.0+, **`CONFIG_NAND_FLASH_ENABLE_BDL=y`**, and `joltwallet/littlefs` >= 1.21.0
+- Mount via `esp_vfs_littlefs_nand_mount()` on the handle from `spi_nand_flash_init_with_layers()`
+- See [`spi_nand_flash_littlefs/README.md`](../spi_nand_flash_littlefs/README.md) and `examples/nand_flash_bdl_littlefs`
 
 ## Troubleshooting
 
