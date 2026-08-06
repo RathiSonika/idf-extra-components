@@ -3,19 +3,21 @@
 
 # SPI NAND Flash LittleFS Example (Block Device Layer)
 
-This example demonstrates how to use the SPI NAND Flash driver with LittleFS via the wear-leveling block device (`esp_blockdev_t`).
+This example mounts LittleFS on SPI NAND Flash using the wear-leveling block device (`esp_blockdev_t`) and **`joltwallet/littlefs` blockdev APIs** (`esp_vfs_littlefs_register` with `.blockdev`).
 
 ## Requirements
 
-- ESP-IDF **6.0 or later**
+- ESP-IDF **6.0 or later** (CMake warns and fails configure on older IDF)
 - **`CONFIG_NAND_FLASH_ENABLE_BDL=y`** (enabled by default via `sdkconfig.defaults`)
+- **`joltwallet/littlefs` >= 1.21.0** (blockdev support)
+- **`CONFIG_LITTLEFS_CACHE_SIZE` >= NAND page size** (example defaults to **4096**)
 - External SPI NAND Flash chip
 
 ## Configuration
 
-The example can be configured to format the filesystem if mounting fails using `CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED`.
-
-Keep **`CONFIG_NAND_FLASH_ENABLE_BDL` enabled** (Component config → SPI NAND Flash).
+- `CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED` — format LittleFS if the first mount fails
+- Keep **`CONFIG_NAND_FLASH_ENABLE_BDL` enabled** (Component config → SPI NAND Flash)
+- Set LittleFS cache size in menuconfig (Component config → LittleFS → Cache Size), or via `sdkconfig.defaults`
 
 ## Hardware Required
 
@@ -33,10 +35,10 @@ idf.py -p PORT flash monitor
 
 The example:
 
-1. Initializes SPI and the NAND flash wear-leveling BDL via `spi_nand_flash_init_with_layers()`
-2. Mounts LittleFS with `esp_vfs_littlefs_nand_mount()`
+1. Initializes SPI and the NAND wear-leveling BDL via `spi_nand_flash_init_with_layers()`
+2. Mounts LittleFS with `esp_vfs_littlefs_register()` (`.blockdev = wl_bdl`)
 3. Writes and reads `hello.txt`
-4. Unmounts (which releases the block device and deinitializes NAND layers)
+4. Unmounts with `esp_vfs_littlefs_unregister_blockdev()` (releases the BDL and NAND layers)
 
 ## Example Output
 

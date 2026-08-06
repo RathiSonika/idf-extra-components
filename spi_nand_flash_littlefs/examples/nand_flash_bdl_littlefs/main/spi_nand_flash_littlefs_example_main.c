@@ -12,7 +12,7 @@
 #include "soc/spi_pins.h"
 #include "spi_nand_flash.h"
 #include "esp_nand_blockdev.h"
-#include "esp_vfs_littlefs_nand.h"
+#include "esp_littlefs.h"
 
 #define EXAMPLE_FLASH_FREQ_KHZ      40000
 
@@ -92,16 +92,22 @@ void app_main(void)
     spi_device_handle_t spi;
     example_init_nand_flash(&wl_bdl, &spi);
 
-    esp_vfs_littlefs_nand_mount_config_t mount_config = {
+    esp_vfs_littlefs_conf_t conf = {
+        .base_path = base_path,
+        .partition_label = NULL,
+        .partition = NULL,
+        .blockdev = wl_bdl,
 #ifdef CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED
         .format_if_mount_failed = true,
 #else
-        .format_if_mount_failed = true,
+        .format_if_mount_failed = false,
 #endif
         .read_only = false,
+        .dont_mount = false,
+        .grow_on_mount = false,
     };
 
-    esp_err_t ret = esp_vfs_littlefs_nand_mount(base_path, wl_bdl, &mount_config);
+    esp_err_t ret = esp_vfs_littlefs_register(&conf);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mount LittleFS (%s)", esp_err_to_name(ret));
         wl_bdl->ops->release(wl_bdl);
@@ -110,14 +116,14 @@ void app_main(void)
     }
 
     size_t total = 0, used = 0;
-    ESP_ERROR_CHECK(esp_vfs_littlefs_nand_info(wl_bdl, &total, &used));
+    ESP_ERROR_CHECK(esp_littlefs_blockdev_info(wl_bdl, &total, &used));
     ESP_LOGI(TAG, "LittleFS: %u kB total, %u kB used", (unsigned)(total / 1024), (unsigned)(used / 1024));
 
     ESP_LOGI(TAG, "Opening file");
     FILE *f = fopen("/nandflash/hello.txt", "w");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for writing");
-        esp_vfs_littlefs_nand_unmount(wl_bdl);
+        esp_vfs_littlefs_unregister_blockdev(wl_bdl);
         example_deinit_spi_bus(spi);
         return;
     }
@@ -129,7 +135,7 @@ void app_main(void)
     f = fopen("/nandflash/hello.txt", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for reading");
-        esp_vfs_littlefs_nand_unmount(wl_bdl);
+        esp_vfs_littlefs_unregister_blockdev(wl_bdl);
         example_deinit_spi_bus(spi);
         return;
     }
@@ -142,9 +148,10 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "Read from file: '%s'", line);
 
-    ESP_ERROR_CHECK(esp_vfs_littlefs_nand_info(wl_bdl, &total, &used));
+    ESP_ERROR_CHECK(esp_littlefs_blockdev_info(wl_bdl, &total, &used));
     ESP_LOGI(TAG, "LittleFS: %u kB total, %u kB used", (unsigned)(total / 1024), (unsigned)(used / 1024));
 
-    esp_vfs_littlefs_nand_unmount(wl_bdl);
+    /* Unregister releases wl_bdl via ops->release (deinitializes NAND layers). */
+    esp_vfs_littlefs_unregister_blockdev(wl_bdl);
     example_deinit_spi_bus(spi);
 }

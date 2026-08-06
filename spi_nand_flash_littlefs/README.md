@@ -33,40 +33,34 @@ For FAT filesystem support on the legacy API, use [`spi_nand_flash_fatfs`](../sp
 
 ```c
 #include "spi_nand_flash.h"
-#include "esp_nand_blockdev.h"
-#include "esp_vfs_littlefs_nand.h"
-
-spi_nand_flash_config_t config = {
-    .device_handle = spi,
-    .io_mode = SPI_NAND_IO_MODE_SIO,
-    .flags = SPI_DEVICE_HALFDUPLEX,
-};
+#include "esp_littlefs.h"
 
 esp_blockdev_handle_t wl_bdl;
 ESP_ERROR_CHECK(spi_nand_flash_init_with_layers(&config, &wl_bdl));
 
-esp_vfs_littlefs_nand_mount_config_t mount_config = {
+esp_vfs_littlefs_conf_t conf = {
+    .base_path = "/nandflash",
+    .blockdev = wl_bdl,
     .format_if_mount_failed = true,
-    .read_only = false,
 };
-ESP_ERROR_CHECK(esp_vfs_littlefs_nand_mount("/nandflash", wl_bdl, &mount_config));
+ESP_ERROR_CHECK(esp_vfs_littlefs_register(&conf));
 
 FILE *f = fopen("/nandflash/hello.txt", "w");
 fprintf(f, "Hello from LittleFS on SPI NAND\n");
 fclose(f);
 
 size_t total = 0, used = 0;
-esp_vfs_littlefs_nand_info(wl_bdl, &total, &used);
+esp_littlefs_blockdev_info(wl_bdl, &total, &used);
 
-/* Unmount releases wl_bdl via ops->release (deinitializes NAND layers). */
-esp_vfs_littlefs_nand_unmount(wl_bdl);
+/* Unregister releases wl_bdl via ops->release (deinitializes NAND layers). */
+esp_vfs_littlefs_unregister_blockdev(wl_bdl);
 ```
 
 ## Examples
 
 | Example | Description | BDL | IDF |
 |---------|-------------|-----|-----|
-| `examples/nand_flash_bdl_littlefs` | LittleFS on NAND via wear-leveling BDL | **Must be on** | 6.0+ |
+| `examples/nand_flash_bdl_littlefs` | LittleFS on NAND via wear-leveling BDL (direct LittleFS APIs) | **Must be on** | 6.0+ |
 
 See the example README for hardware wiring and build steps.
 
@@ -75,9 +69,7 @@ See the example README for hardware wiring and build steps.
 ```
 Application (fopen, etc.)
         ↓
-esp_vfs_littlefs_nand_mount()
-        ↓
-joltwallet/littlefs (esp_vfs_littlefs_register, blockdev backend)
+joltwallet/littlefs (esp_vfs_littlefs_register, .blockdev)
         ↓
 spi_nand_flash wear-leveling BDL (esp_blockdev_t, Dhara FTL)
         ↓
