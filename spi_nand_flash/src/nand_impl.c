@@ -214,8 +214,6 @@ static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t blo
         uint32_t plane = block % handle->chip.num_planes;
         // Plane index is encoded in the column address bit after the page MSB.
         // 2048-byte pages use bit 12; 4096-byte pages use bit 13.
-        // On some GigaDevice GD5F4GM7/8, this models odd/even block parity for Internal
-        // Data Move; nand_copy() falls back to a RAM copy when parity differs.
         column_addr += plane << (handle->chip.log2_page_size + 1);
     }
     return column_addr;
@@ -487,8 +485,16 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
     uint16_t src_column_addr = get_column_address(handle, src_block, 0);
     uint16_t dst_column_addr = get_column_address(handle, dst_block, 0);
 
-    if (src_column_addr != dst_column_addr) {
-        // In a 2 plane structure of the flash, if the pages are not on the same plane, the data must be copied through RAM.
+    // RAM copy when Internal Data Move cannot be used:
+    // - HW dual-plane: different planes (different column addresses), or
+    // - chips that require same odd/even block parity for IDM.
+    bool need_ram_copy = (src_column_addr != dst_column_addr);
+    if (handle->chip.flags & NAND_FLAG_IDM_SAME_PARITY_REQUIRED) {
+        need_ram_copy = need_ram_copy || ((src_block ^ dst_block) & 1U);
+    }
+
+    if (need_ram_copy) {
+        // Copy through RAM when HW Internal Data Move is not valid for this src/dst pair.
         uint8_t *copy_buf = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         ESP_GOTO_ON_FALSE(copy_buf, ESP_ERR_NO_MEM, fail, TAG, "Failed to allocate copy buffer");
 
@@ -520,7 +526,7 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
 
 #if CONFIG_NAND_FLASH_VERIFY_WRITE
     // First read src page data from cache to temp_buf
-    if (src_column_addr != dst_column_addr) {
+    if (need_ram_copy) {
         // Then read src page data from nand memory array and load it in cache
         ESP_GOTO_ON_ERROR(read_page_and_wait(handle, src, &status), fail, TAG, "");
         if (is_ecc_error(handle, status)) {

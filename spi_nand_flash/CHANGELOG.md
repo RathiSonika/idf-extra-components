@@ -2,6 +2,9 @@
 
 Versioning policy: see [VERSIONING.md](VERSIONING.md). From **v1.0.0** onward this component follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1]
+- fix: use Internal Data Move same-parity handling for GigaDevice chips that require it (GD5F2GQ5, GD5F2GM7, GD5F4GQ6, GD5F4GM8, GD5F4GM7, GD5F8GM8), without treating them as hardware dual-plane
+
 ## [1.4.0]
 - feat: added support for Gigadevice GD5F8GM8UExxG NAND flash
 
