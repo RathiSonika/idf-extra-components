@@ -48,8 +48,8 @@ menu "SPI NAND Flash configuration"
         help
             When enabled together with anonymous detection, user-supplied page geometry
             and timing values from Kconfig are used if database and ONFI paths fail.
-            All values must match the attached part datasheet. Defaults are invalid until
-            you set each field from the datasheet (init returns ESP_ERR_INVALID_ARG).
+            All values must match the attached part datasheet. Invalid defaults (0) or
+            out-of-range values fail the build via _Static_assert (not runtime).
 
     if NAND_FLASH_ANONYMOUS_MANUAL
 
@@ -59,22 +59,22 @@ menu "SPI NAND Flash configuration"
             range 0 8192
             help
                 Data bytes per page from the chip datasheet. Must be a power of two
-                (e.g. 2048, 4096). Default 0 is rejected at init until configured.
+                in 512..8192 (e.g. 2048, 4096). Default 0 fails the build until set.
 
         config NAND_FLASH_ANONYMOUS_MANUAL_PAGES_PER_BLOCK
             int "Manual: pages per block"
             default 0
             range 0 256
             help
-                Pages per block from the datasheet. Must be a power of two (e.g. 64).
-                Default 0 is rejected at init until configured.
+                Pages per block from the datasheet. Must be a power of two in 32..256
+                (e.g. 64). Default 0 fails the build until set.
 
         config NAND_FLASH_ANONYMOUS_MANUAL_NUM_BLOCKS
             int "Manual: number of blocks"
             default 0
             range 0 65536
             help
-                Total block count from the datasheet. Default 0 is rejected at init.
+                Total block count from the datasheet. Must be > 0; default 0 fails the build.
 
         config NAND_FLASH_ANONYMOUS_MANUAL_NUM_PLANES
             int "Manual: number of planes"

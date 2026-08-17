@@ -56,6 +56,8 @@ typedef struct __attribute__((packed))
     uint8_t  programs_per_page;                               /* byte 110: Number of programs per page */
     uint8_t  partial_programming_attributes;                  /* byte 111: Partial programming attributes */
     uint8_t  ecc_correctability;                              /* byte 112: Number of bits ECC correctability */
+    /* Bytes 113–114: kept so the packed struct matches the 256-byte ONFI
+     * page; unused in v1. Not the same as nand_impl.c plane-select. */
     uint8_t  num_interleaved_address_bits;                    /* byte 113: Number of interleaved address bits */
     uint8_t  interleaved_operation_attributes;                /* byte 114: Interleaved operation attributes */
     uint8_t  reserved_115_127[13];                            /* bytes 115-127: Reserved (0) */

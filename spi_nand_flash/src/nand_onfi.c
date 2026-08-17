@@ -55,6 +55,9 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
     dev->chip.read_page_delay_us = param->t_r_max_us;
     dev->chip.erase_block_delay_us = param->t_bers_max_us;
     dev->chip.program_page_delay_us = param->t_prog_max_us;
+    /* Bytes 113–114 (ONFI interleaved addressing) are not mapped to this
+     * driver's plane-select column bit. Force single-plane for Tier 2;
+     * dual-plane SPI NAND needs Tier 3 manual geometry (or a vendor DB row). */
     dev->chip.num_planes = 1;
     dev->chip.has_quad_enable_bit = 0;
     dev->chip.quad_enable_bit_pos = 0;
@@ -69,8 +72,13 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
             (param->ecc_correctability >= 8) ? 6 : 4;
     }
 
-    ESP_LOGD(TAG, "ONFI spare_bytes_per_page=%u (not used for geometry)",
+    ESP_LOGD(TAG, "ONFI spare_bytes_per_page=%u (not used for geometry; markers need >= 4 OOB bytes)",
              (unsigned)param->spare_bytes_per_page);
+    if (param->spare_bytes_per_page > 0 && param->spare_bytes_per_page < 4) {
+        ESP_LOGW(TAG,
+                 "ONFI spare_bytes_per_page=%u < 4; BBM/page-used markers occupy 4 bytes at column page_size",
+                 (unsigned)param->spare_bytes_per_page);
+    }
 
     return ESP_OK;
 }

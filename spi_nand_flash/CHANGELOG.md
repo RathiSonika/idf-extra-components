@@ -11,6 +11,9 @@ Versioning policy: see [VERSIONING.md](VERSIONING.md). From **v1.0.0** onward th
 - Tier 2/3 paths use SIO only; QOUT/QIO requests log a warning. OOB remains the baseline 4-byte markers at `page_size` (ONFI spare size is not applied in v1).
 - No breaking API changes; default builds match pre-feature behavior when anonymous detection is disabled.
 
+### Fixes
+- `nand_wait_for_ready()`: bound STAT_BUSY polling with a FreeRTOS-tick timeout (`ESP_ERR_TIMEOUT`) so missing/hung chips cannot spin forever.
+
 ## [1.4.2]
 - fix: use Internal Data Move same-parity handling for GigaDevice chips that require it (GD5F2GQ5, GD5F2GM7, GD5F4GQ6, GD5F4GM8, GD5F4GM7, GD5F8GM8), without treating them as hardware dual-plane
 
