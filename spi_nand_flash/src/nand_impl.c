@@ -3,18 +3,31 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * SPDX-FileContributor: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2015-2026 Espressif Systems (Shanghai) CO LTD
  */
 
+#include <inttypes.h>
 #include <string.h>
 #include "esp_check.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "spi_nand_oper.h"
 #include "nand.h"
 #include "nand_flash_devices.h"
 #include "nand_device_types.h"
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+#include "nand_onfi.h"
+#if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
+#include "nand_anonymous_manual.h"
+#endif
+#endif
 
 #define ROM_WAIT_THRESHOLD_US 1000
+/* Vendor tables pass typical tR/tPROG/tBERS; datasheet max is often several
+ * times that. Bound hangs at 10× typical plus one tick so max/tick rounding
+ * cannot false-timeout. Wrong if actual BUSY exceeds 10× the delay passed in. */
+#define NAND_WAIT_READY_TIMEOUT_MULT 10U
 
 static const char *TAG = "nand_hal";
 
@@ -81,6 +94,33 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
     return ret;
 }
 
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+
+static esp_err_t nand_try_anonymous_detect(spi_nand_flash_device_t *dev)
+{
+    esp_err_t ret = nand_onfi_try_init(dev);
+#if CONFIG_NAND_FLASH_ANONYMOUS_MANUAL
+    if (ret != ESP_OK) {
+        ret = nand_anonymous_manual_try_init(dev);
+    }
+#endif
+    return (ret == ESP_OK) ? ret : ESP_ERR_NOT_FOUND;
+}
+
+static void nand_apply_anonymous_io_limits(spi_nand_flash_device_t *dev)
+{
+    if ((dev->chip_detection_flags & SPI_NAND_CHIP_FLAG_ANONYMOUS) == 0) {
+        return;
+    }
+    if (dev->config.io_mode == SPI_NAND_IO_MODE_QOUT
+            || dev->config.io_mode == SPI_NAND_IO_MODE_QIO) {
+        ESP_LOGW(TAG, "Anonymous chip uses SIO only; forcing SPI_NAND_IO_MODE_SIO");
+    }
+    dev->config.io_mode = SPI_NAND_IO_MODE_SIO;
+}
+
+#endif /* CONFIG_NAND_FLASH_ANONYMOUS_DETECT */
+
 esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
 {
     esp_err_t ret = ESP_OK;
@@ -99,8 +139,25 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->chip_source = SPI_NAND_CHIP_SOURCE_DATABASE;
+    (*handle)->chip_detection_flags = 0;
 
-    ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ret = detect_chip(*handle);
+    if (ret != ESP_OK) {
+#if CONFIG_NAND_FLASH_ANONYMOUS_DETECT
+        ret = nand_try_anonymous_detect(*handle);
+        if (ret == ESP_OK) {
+            nand_apply_anonymous_io_limits(*handle);
+        }
+#else
+        ESP_LOGE(TAG, "Failed to detect nand chip");
+        goto fail;
+#endif
+        if (ret != ESP_OK) {
+            goto fail;
+        }
+    }
+
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
@@ -163,11 +220,21 @@ static esp_err_t s_verify_write(spi_nand_flash_device_t *handle, const uint8_t *
 }
 #endif //CONFIG_NAND_FLASH_VERIFY_WRITE
 
-static esp_err_t wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_operation_time_us, uint8_t *status_out)
+esp_err_t nand_wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_operation_time_us, uint8_t *status_out)
 {
     if (expected_operation_time_us < ROM_WAIT_THRESHOLD_US) {
         esp_rom_delay_us(expected_operation_time_us);
     }
+
+    /* Hang bound only. Success path still polls until BUSY clears. */
+    uint64_t timeout_us = (uint64_t)expected_operation_time_us * NAND_WAIT_READY_TIMEOUT_MULT;
+    uint32_t timeout_ms = (uint32_t)((timeout_us + 999U) / 1000U);
+    if (timeout_ms == 0) {
+        timeout_ms = 1;
+    }
+    TickType_t timeout_ticks = (timeout_ms + portTICK_PERIOD_MS - 1U) / portTICK_PERIOD_MS;
+    timeout_ticks += 1;
+    TickType_t start_tick = xTaskGetTickCount();
 
     while (true) {
         uint8_t status;
@@ -178,6 +245,11 @@ static esp_err_t wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_
                 *status_out = status;
             }
             break;
+        }
+
+        if ((xTaskGetTickCount() - start_tick) >= timeout_ticks) {
+            ESP_LOGE(TAG, "STAT_BUSY timeout (expected %" PRIu32 " us)", expected_operation_time_us);
+            return ESP_ERR_TIMEOUT;
         }
 
         if (expected_operation_time_us >= ROM_WAIT_THRESHOLD_US) {
@@ -192,14 +264,14 @@ static esp_err_t read_page_and_wait(spi_nand_flash_device_t *dev, uint32_t page,
 {
     ESP_RETURN_ON_ERROR(spi_nand_read_page(dev, page), TAG, "");
 
-    return wait_for_ready(dev, dev->chip.read_page_delay_us, status_out);
+    return nand_wait_for_ready(dev, dev->chip.read_page_delay_us, status_out);
 }
 
 static esp_err_t program_execute_and_wait(spi_nand_flash_device_t *dev, uint32_t page, uint8_t *status_out)
 {
     ESP_RETURN_ON_ERROR(spi_nand_program_execute(dev, page), TAG, "");
 
-    return wait_for_ready(dev, dev->chip.program_page_delay_us, status_out);
+    return nand_wait_for_ready(dev, dev->chip.program_page_delay_us, status_out);
 }
 
 static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t block, uint32_t offset)
@@ -258,7 +330,7 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
                       fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle, handle->chip.erase_block_delay_us, &status),
+    ESP_GOTO_ON_ERROR(nand_wait_for_ready(handle, handle->chip.erase_block_delay_us, &status),
                       fail, TAG, "");
     if ((status & STAT_ERASE_FAILED) != 0) {
         ret = ESP_ERR_NOT_FINISHED;
@@ -297,8 +369,8 @@ esp_err_t nand_erase_block(spi_nand_flash_device_t *handle, uint32_t block)
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
                       fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle,
-                                     handle->chip.erase_block_delay_us, &status),
+    ESP_GOTO_ON_ERROR(nand_wait_for_ready(handle,
+                                          handle->chip.erase_block_delay_us, &status),
                       fail, TAG, "");
 
     if ((status & STAT_ERASE_FAILED) != 0) {

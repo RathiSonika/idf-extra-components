@@ -36,6 +36,9 @@ extern "C" {
 // parity (e.g. some GigaDevice parts). nand_copy() uses a RAM path when parity differs.
 #define NAND_FLAG_IDM_SAME_PARITY_REQUIRED    BIT(2)
 
+/** Set when geometry was not established from the vendor database (ONFI or manual path). */
+#define SPI_NAND_CHIP_FLAG_ANONYMOUS          BIT(0)
+
 // Legacy typedef for compatibility - now uses nand_flash_geometry_t internally
 typedef nand_flash_geometry_t spi_nand_chip_t;
 
@@ -57,6 +60,8 @@ struct spi_nand_flash_device_t {
     spi_nand_flash_config_t config;
     spi_nand_chip_t chip;                  // Geometry (legacy typedef for nand_flash_geometry_t)
     nand_device_info_t device_info;        // Device identification (manufacturer, device ID, chip name)
+    spi_nand_chip_source_t chip_source;
+    uint8_t chip_detection_flags;
     const spi_nand_ops *ops;
     void *ops_priv_data;
     uint8_t *work_buffer;
@@ -80,6 +85,12 @@ static inline bool nand_ecc_exceeds_data_refresh_threshold(const spi_nand_flash_
         min_bits_corrected = 7;
     }
     return min_bits_corrected >= handle->chip.ecc_data.ecc_data_refresh_threshold;
+}
+
+/** floor(log2(n)); n must be > 0. Uses __builtin_clz (single CLZ on Xtensa/RISC-V). */
+static inline uint8_t nand_log2_u32(uint32_t n)
+{
+    return n ? (uint8_t)(31 - __builtin_clz(n)) : 0;
 }
 
 /**
