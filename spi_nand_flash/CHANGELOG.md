@@ -5,6 +5,8 @@ All notable changes to this component will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See [VERSIONING.md](VERSIONING.md) for this component's versioning policy.
 
 ## [Unreleased]
+- feat: add support for HeYangTek HYF8GQ4UACCAE SPI NAND (MID 0xC9, DID 0x58)
+- feat: Program Load first vs random path; NAND_FLAG_PROG_LOAD_RESET for parts that need cache-reset load
 - feat: map ECC status correctly on GigaDevice chips using the ECCSE bits (status register F0h)
 
 ## [1.4.4] - 2026-09-10

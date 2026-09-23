@@ -388,12 +388,28 @@ esp_err_t spi_nand_program_execute(spi_nand_flash_device_t *handle, uint32_t pag
     return spi_nand_execute_transaction(handle, &t);
 }
 
-esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *data, uint16_t column, uint16_t length)
+static uint8_t spi_nand_resolve_program_load_cmd(spi_nand_flash_device_t *handle, bool random)
 {
-    uint8_t cmd = CMD_PROGRAM_LOAD;
+    const bool quad = (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT ||
+                       handle->config.io_mode == SPI_NAND_IO_MODE_QIO);
+    const bool use_reset_cmd = (handle->chip.flags & NAND_FLAG_PROG_LOAD_RESET) != 0;
+
+    if (use_reset_cmd) {
+        if (quad) {
+            return random ? CMD_PROGRAM_LOAD_X4 : CMD_PROGRAM_LOAD_RESET_X4;
+        }
+        return random ? CMD_PROGRAM_LOAD : CMD_PROGRAM_LOAD_RESET;
+    }
+    /* Default: most vendors use 0x84/0x34 for both first and random load. */
+    return quad ? CMD_PROGRAM_LOAD_X4 : CMD_PROGRAM_LOAD;
+}
+
+static esp_err_t spi_nand_program_load_internal(spi_nand_flash_device_t *handle, const uint8_t *data,
+                                                uint16_t column, uint16_t length, bool random)
+{
+    uint8_t cmd = spi_nand_resolve_program_load_cmd(handle, random);
     uint32_t spi_flags = 0;
     if (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT || handle->config.io_mode == SPI_NAND_IO_MODE_QIO) {
-        cmd = CMD_PROGRAM_LOAD_X4;
         spi_flags = SPI_TRANS_MODE_QIO;
     }
 
@@ -416,6 +432,16 @@ esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *
     };
 
     return spi_nand_execute_transaction(handle, &t);
+}
+
+esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *data, uint16_t column, uint16_t length)
+{
+    return spi_nand_program_load_internal(handle, data, column, length, false);
+}
+
+esp_err_t spi_nand_program_load_random(spi_nand_flash_device_t *handle, const uint8_t *data, uint16_t column, uint16_t length)
+{
+    return spi_nand_program_load_internal(handle, data, column, length, true);
 }
 
 esp_err_t spi_nand_erase_block(spi_nand_flash_device_t *handle, uint32_t page)
