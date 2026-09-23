@@ -12,3 +12,5 @@ dependencies:
     version: "1.*"
     override_path: "../dhara"
     require: public
+    rules:
+      - if: "$CONFIG{NAND_FLASH_ENABLE_WL} == True"

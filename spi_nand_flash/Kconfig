@@ -8,6 +8,31 @@ menu "SPI NAND Flash configuration"
             back and verified. This can catch hardware problems with SPI NAND flash, or flash which
             was not erased before verification.
 
+    config NAND_FLASH_ENABLE_WL
+        bool "Enable wear-leveling (FTL) support"
+        default y
+        help
+            Enable the flash translation layer / wear leveling (currently Dhara:
+            bad-block remapping, garbage collection). When enabled, the legacy API
+            and the wear-leveling BDL use Dhara. The espressif/dhara component and
+            src/dhara_glue.c are built in.
+
+            When disabled, wear-leveling is compiled out (dhara_glue.c and the dhara
+            dependency are not included). Legacy spi_nand_flash_init_device() and the
+            wear-leveling BDL APIs return ESP_ERR_NOT_SUPPORTED. Raw flash access
+            remains available via nand_flash_get_blockdev() when BDL is enabled, or
+            via the internal nand_init_device() / nand_* APIs for a custom FTL.
+
+            WARNING: Using SPI NAND flash without wear leveling is NOT recommended for
+            general storage or filesystem use. Raw NAND requires erase-before-program,
+            bad-block handling, and wear management. Disable this option only if you
+            provide your own FTL or need raw access for diagnostics / bring-up.
+
+            After changing this option, delete the project's dependencies.lock and run
+            "idf.py fullclean reconfigure". Changing the Kconfig alone is not enough:
+            a stale lock still pulls espressif/dhara into the build (you will still see
+            "NOTE: [1/3] espressif/dhara" in the logs).
+
     config NAND_FLASH_ENABLE_BDL
         bool "Enable Block Device Layer (BDL) support"
         depends on IDF_INIT_VERSION >= "6.0"
@@ -17,10 +42,13 @@ menu "SPI NAND Flash configuration"
             - Standard esp_blockdev_t interface for layered architecture
             - Flash Block Device Layer (raw NAND flash access)
             - Wear-Leveling Block Device Layer (logical sector access with wear leveling)
-            - Advanced layered API (spi_nand_flash_init_with_layers)
+              when NAND_FLASH_ENABLE_WL is also enabled
+            - Advanced layered API (spi_nand_flash_init_with_layers) when wear-leveling
+              is enabled
             When disabled, only the legacy API is available.
             When enabled, the legacy spi_nand_flash_init_device() is not available (returns
-            ESP_ERR_NOT_SUPPORTED). Use spi_nand_flash_init_with_layers().
+            ESP_ERR_NOT_SUPPORTED). Use spi_nand_flash_init_with_layers() when wear-leveling
+            is enabled, or nand_flash_get_blockdev() for raw flash access.
 
             Note: This option requires ESP-IDF >= 6.0 (esp_blockdev component).
             Enabling this on ESP-IDF < 6.0 will result in a build error.
