@@ -71,15 +71,14 @@ struct spi_nand_flash_device_t {
     const spi_nand_ops *ops;
     void *ops_priv_data;
     nand_ecc_decode_fn ecc_status_decoder;  // Per-chip C0h ECC status decoder; never NULL after init
-    uint8_t *work_buffer;
-    uint8_t *read_buffer;
-    uint8_t *temp_buffer;
+    uint8_t *temp_buffer;   ///< SPI DMA bounce (flash/SPI layer only)
     SemaphoreHandle_t mutex;
 #ifdef CONFIG_IDF_TARGET_LINUX
     nand_mmap_emul_handle_t *emul_handle;
 #endif
 };
 
+#if CONFIG_NAND_FLASH_ENABLE_WL
 /**
  * @brief Attach wear-leveling operations to NAND device (internal use only)
  *
@@ -106,6 +105,7 @@ esp_err_t nand_wl_attach_ops(spi_nand_flash_device_t *handle);
  *         - ESP_OK: Success
  */
 esp_err_t nand_wl_detach_ops(spi_nand_flash_device_t *handle);
+#endif // CONFIG_NAND_FLASH_ENABLE_WL
 
 #ifdef __cplusplus
 }
