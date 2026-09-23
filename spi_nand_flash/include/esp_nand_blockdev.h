@@ -235,6 +235,7 @@ typedef struct {
 esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config,
                                   esp_blockdev_handle_t *out_bdl_handle_ptr);
 
+#if CONFIG_NAND_FLASH_ENABLE_WL
 /**
  * @brief Create Wear-Leveling Block Device Layer (logical sector access)
  *
@@ -263,6 +264,7 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config,
  */
 esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl,
                                          esp_blockdev_handle_t *out_bdl_handle_ptr);
+#endif // CONFIG_NAND_FLASH_ENABLE_WL
 
 #ifdef __cplusplus
 }

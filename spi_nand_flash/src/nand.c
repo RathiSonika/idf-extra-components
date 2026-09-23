@@ -26,6 +26,11 @@ esp_err_t spi_nand_flash_init_device(spi_nand_flash_config_t *config, spi_nand_f
     ESP_LOGE(TAG, "spi_nand_flash_init_device() is not supported when BDL is enabled. "
              "Use spi_nand_flash_init_with_layers() instead");
     return ESP_ERR_NOT_SUPPORTED;
+#elif !CONFIG_NAND_FLASH_ENABLE_WL
+    ESP_LOGE(TAG, "spi_nand_flash_init_device() requires Dhara wear-leveling. "
+             "Enable CONFIG_NAND_FLASH_ENABLE_WL, or use raw flash APIs "
+             "(nand_flash_get_blockdev / nand_init_device) with a custom FTL");
+    return ESP_ERR_NOT_SUPPORTED;
 #else
     if (!config->gc_factor) {
         config->gc_factor = 45;
@@ -49,7 +54,7 @@ esp_err_t spi_nand_flash_init_device(spi_nand_flash_config_t *config, spi_nand_f
     (*handle)->ops->init(*handle, NULL);
 
     return ESP_OK;
-#endif // CONFIG_NAND_FLASH_ENABLE_BDL
+#endif // CONFIG_NAND_FLASH_ENABLE_BDL / CONFIG_NAND_FLASH_ENABLE_WL
 }
 
 esp_err_t spi_nand_erase_chip(spi_nand_flash_device_t *handle)
@@ -228,9 +233,9 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
 #ifdef CONFIG_IDF_TARGET_LINUX
     ret = nand_emul_deinit(handle);
 #endif
+#if CONFIG_NAND_FLASH_ENABLE_WL
     nand_wl_detach_ops(handle);
-    free(handle->work_buffer);
-    free(handle->read_buffer);
+#endif
 #ifndef CONFIG_IDF_TARGET_LINUX
     free(handle->temp_buffer);
 #endif
@@ -250,6 +255,12 @@ esp_err_t spi_nand_flash_init_with_layers(spi_nand_flash_config_t *config,
 {
     ESP_RETURN_ON_FALSE(config && wl_bdl, ESP_ERR_INVALID_ARG, TAG, "Invalid arguments");
 
+#if !CONFIG_NAND_FLASH_ENABLE_WL
+    ESP_LOGE(TAG, "spi_nand_flash_init_with_layers() requires Dhara wear-leveling. "
+             "Enable CONFIG_NAND_FLASH_ENABLE_WL, or use nand_flash_get_blockdev() "
+             "for raw flash access with a custom FTL");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     // Set default GC factor if not specified
     if (!config->gc_factor) {
         config->gc_factor = 45;
@@ -271,5 +282,6 @@ esp_err_t spi_nand_flash_init_with_layers(spi_nand_flash_config_t *config,
 
     ESP_LOGD(TAG, "SPI NAND Flash initialized with layered block device architecture");
     return ESP_OK;
+#endif // CONFIG_NAND_FLASH_ENABLE_WL
 }
 #endif // CONFIG_NAND_FLASH_ENABLE_BDL

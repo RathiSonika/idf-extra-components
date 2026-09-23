@@ -117,12 +117,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.block_size = (1 << (*handle)->chip.log2_ppb) * (*handle)->chip.page_size;
 
     size_t dma_alignment = spi_nand_get_dma_alignment();
-    (*handle)->work_buffer = heap_caps_aligned_alloc(dma_alignment, (*handle)->chip.page_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    ESP_GOTO_ON_FALSE((*handle)->work_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
-
-    (*handle)->read_buffer = heap_caps_aligned_alloc(dma_alignment, (*handle)->chip.page_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    ESP_GOTO_ON_FALSE((*handle)->read_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
-
+    /* SPI DMA bounce only; WL page buffers are allocated in dhara_init. */
     (*handle)->temp_buffer = heap_caps_aligned_alloc(dma_alignment, (*handle)->chip.page_size + dma_alignment, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     ESP_GOTO_ON_FALSE((*handle)->temp_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
 
@@ -134,8 +129,6 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     return ret;
 
 fail:
-    free((*handle)->work_buffer);
-    free((*handle)->read_buffer);
     free((*handle)->temp_buffer);
     if ((*handle)->mutex) {
         vSemaphoreDelete((*handle)->mutex);
@@ -252,11 +245,10 @@ esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t block, bool *is_
 
     uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
 
-    // Read 4 bytes to include both bad block marker and page status
-    ESP_GOTO_ON_ERROR(spi_nand_read(handle, (uint8_t *) handle->read_buffer, column_addr, 4),
-                      fail, TAG, "");
+    /* Stack buffer is fine: spi_nand_read bounces via temp_buffer when DMA
+     * address/length alignment requires it (e.g. ESP32-C3, ESP32-P4). */
+    ESP_GOTO_ON_ERROR(spi_nand_read(handle, markers, column_addr, 4), fail, TAG, "");
 
-    memcpy(&markers, handle->read_buffer, sizeof(markers));
     ESP_LOGV(TAG, "is_bad, block=%"PRIu32", page=%"PRIu32",indicator = %02x,%02x", block, first_block_page, markers[0], markers[1]);
     *is_bad_status = (markers[0] != 0xFF || markers[1] != 0xFF);
     return ret;
@@ -429,11 +421,9 @@ esp_err_t nand_is_free(spi_nand_flash_device_t *handle, uint32_t page, bool *is_
     uint32_t block = page >> handle->chip.log2_ppb;
     uint16_t column_addr = get_column_address(handle, block, handle->chip.page_size);
 
-    // Read 4 bytes to get both bad block marker and page used marker
-    ESP_GOTO_ON_ERROR(spi_nand_read(handle, (uint8_t *)handle->read_buffer,
-                                    column_addr, 4), fail, TAG, "");
+    /* Stack buffer is fine: spi_nand_read bounces via temp_buffer when needed. */
+    ESP_GOTO_ON_ERROR(spi_nand_read(handle, markers, column_addr, 4), fail, TAG, "");
 
-    memcpy(&markers, handle->read_buffer, sizeof(markers));
     ESP_LOGV(TAG, "is free, page=%"PRIu32", used_marker=%02x,%02x,", page, markers[2], markers[3]);
     *is_free_status = (markers[2] == 0xFF && markers[3] == 0xFF);
     return ret;

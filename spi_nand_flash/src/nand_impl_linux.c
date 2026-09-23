@@ -9,6 +9,7 @@
 #include <string.h>
 #include "esp_check.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "spi_nand_flash.h"
 #include "nand.h"
 #include "nand_linux_mmap_emul.h"
@@ -112,12 +113,6 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
 
     ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
 
-    (*handle)->work_buffer = heap_caps_malloc((*handle)->chip.page_size, MALLOC_CAP_DEFAULT);
-    ESP_GOTO_ON_FALSE((*handle)->work_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
-
-    (*handle)->read_buffer = heap_caps_malloc((*handle)->chip.page_size, MALLOC_CAP_DEFAULT);
-    ESP_GOTO_ON_FALSE((*handle)->read_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
-
     (*handle)->mutex = xSemaphoreCreateMutex();
     if (!(*handle)->mutex) {
         ret = ESP_ERR_NO_MEM;
@@ -126,8 +121,6 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     return ret;
 
 fail:
-    free((*handle)->work_buffer);
-    free((*handle)->read_buffer);
     if ((*handle)->mutex) {
         vSemaphoreDelete((*handle)->mutex);
     }
@@ -257,14 +250,22 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
     esp_err_t ret = ESP_OK;
     uint32_t dst_offset = dst * handle->chip.emulated_page_size;
     uint32_t src_offset = src * handle->chip.emulated_page_size;
+    uint8_t *copy_buf = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DEFAULT);
+    ESP_RETURN_ON_FALSE(copy_buf != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate copy buffer");
 
-    ESP_RETURN_ON_ERROR(nand_emul_read(handle, (size_t)src_offset, (void *)handle->read_buffer, handle->chip.page_size),
-                        TAG, "Error in nand_copy %d", ret);
-    ESP_RETURN_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset, (void *)handle->read_buffer, handle->chip.page_size),
-                        TAG, "Error in nand_copy %d", ret);
+    ESP_GOTO_ON_ERROR(nand_emul_read(handle, (size_t)src_offset, (void *)copy_buf, handle->chip.page_size),
+                      fail, TAG, "Error in nand_copy");
+    ESP_GOTO_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset, (void *)copy_buf, handle->chip.page_size),
+                      fail, TAG, "Error in nand_copy");
+    free(copy_buf);
+    copy_buf = NULL;
     ESP_RETURN_ON_ERROR(nand_emul_write(handle, (size_t)dst_offset + handle->chip.page_size,
-                                        s_oob_used_page_markers, sizeof(s_oob_used_page_markers)), TAG, "Error in nand_copy %d", ret);
+                                        s_oob_used_page_markers, sizeof(s_oob_used_page_markers)), TAG, "Error in nand_copy");
 
+    return ret;
+
+fail:
+    free(copy_buf);
     return ret;
 }
 
