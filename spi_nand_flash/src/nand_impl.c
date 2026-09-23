@@ -48,6 +48,8 @@ static esp_err_t detect_chip(spi_nand_flash_device_t *dev)
         return spi_nand_fm_init(dev);
     case SPI_NAND_FLASH_MACRONIX_MI: // Macronix
         return spi_nand_macronix_init(dev);
+    case SPI_NAND_FLASH_HEYANGTEK_MI: // HeYangTek
+        return spi_nand_heyangtek_init(dev);
     default:
         return ESP_ERR_INVALID_RESPONSE;
     }
@@ -387,8 +389,8 @@ esp_err_t nand_prog(spi_nand_flash_device_t *handle, uint32_t page, const uint8_
     ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, data, column_addr, handle->chip.page_size),
                       fail, TAG, "");
     // Write 4 bytes: bad block marker (0xFFFF - good block) + page used marker (0x0000 - used)
-    ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (uint8_t *)&markers,
-                                            column_addr + handle->chip.page_size, 4), fail, TAG, "");
+    ESP_GOTO_ON_ERROR(spi_nand_program_load_random(handle, (uint8_t *)&markers,
+                                                   column_addr + handle->chip.page_size, 4), fail, TAG, "");
 
     ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, page, &status), fail, TAG, "");
 
@@ -579,8 +581,8 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
 
         // Write 4 bytes: bad block marker (0xFFFF - good block) + page used marker (0x0000 - used)
         uint8_t markers[4] = { 0xFF, 0xFF, 0x00, 0x00 };
-        ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (uint8_t *)&markers,
-                                                dst_column_addr + handle->chip.page_size, 4), fail, TAG, "");
+        ESP_GOTO_ON_ERROR(spi_nand_program_load_random(handle, (uint8_t *)&markers,
+                                                       dst_column_addr + handle->chip.page_size, 4), fail, TAG, "");
         ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
 
         if ((status & STAT_PROGRAM_FAILED) != 0) {

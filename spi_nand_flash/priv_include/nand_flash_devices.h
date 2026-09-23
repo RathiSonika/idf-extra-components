@@ -26,6 +26,7 @@ extern "C" {
 #define SPI_NAND_FLASH_XTX_MI         0x0B
 #define SPI_NAND_FLASH_FM_MI          0xA1  // Fudan Microelectronics
 #define SPI_NAND_FLASH_MACRONIX_MI    0xC2
+#define SPI_NAND_FLASH_HEYANGTEK_MI   0xC9  // HeYangTek (HYF*)
 
 //=============================================================================
 // DEVICE IDs
@@ -90,6 +91,9 @@ extern "C" {
 #define MACRONIX_DI_26                0x26   //MX35LF2GE4AD (2Gb)
 #define MACRONIX_DI_37                0x37   //MX35LF4GE4AD (4Gb)
 
+// HeYangTek
+#define HEYANGTEK_DI_58               0x58   // HYF8GQ4UACCAE (8Gb)
+
 //=============================================================================
 // DEVICE INITIALIZATION FUNCTIONS
 //=============================================================================
@@ -133,6 +137,11 @@ esp_err_t spi_nand_fm_init(spi_nand_flash_device_t *dev);
  * @brief Initialize Macronix NAND flash
  */
 esp_err_t spi_nand_macronix_init(spi_nand_flash_device_t *dev);
+
+/**
+ * @brief Initialize HeYangTek NAND flash
+ */
+esp_err_t spi_nand_heyangtek_init(spi_nand_flash_device_t *dev);
 
 #ifdef __cplusplus
 }

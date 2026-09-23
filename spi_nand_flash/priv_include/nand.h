@@ -35,6 +35,10 @@ extern "C" {
 // Single-plane devices whose Internal Data Move requires same odd/even block
 // parity (e.g. some GigaDevice parts). nand_copy() uses a RAM path when parity differs.
 #define NAND_FLAG_IDM_SAME_PARITY_REQUIRED    BIT(2)
+// First Program Load must use the cache-reset form (0x02/0x32); random/IDM form
+// (0x84/0x34) is only for further column updates (e.g. HeYangTek HYF*).
+// Default path uses 0x84/0x34 for both.
+#define NAND_FLAG_PROG_LOAD_RESET             BIT(3)
 
 // Legacy typedef for compatibility - now uses nand_flash_geometry_t internally
 typedef nand_flash_geometry_t spi_nand_chip_t;
