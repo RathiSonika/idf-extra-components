@@ -25,6 +25,14 @@ menu "SPI NAND Flash configuration"
             Note: This option requires ESP-IDF >= 6.0 (esp_blockdev component).
             Enabling this on ESP-IDF < 6.0 will result in a build error.
 
+    config NAND_FLASH_DHARA_META_CACHE
+        bool "Cache Dhara metadata reads"
+        default n
+        help
+            Cache up to 16 exact 132-byte Dhara metadata reads per device.
+            This experimental option uses approximately 2.4 KiB of device
+            memory and is intended for throughput testing.
+
     config NAND_ENABLE_STATS
         bool "Host test statistics enabled"
         depends on IDF_TARGET_LINUX
