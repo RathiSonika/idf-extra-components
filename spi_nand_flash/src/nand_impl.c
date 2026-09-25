@@ -6,14 +6,20 @@
  * SPDX-FileContributor: 2015-2026 Espressif Systems (Shanghai) CO LTD
  */
 
-#include <string.h>
 #include <inttypes.h>
+#include <string.h>
 #include "esp_check.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "spi_nand_oper.h"
 #include "nand.h"
-#include "nand_flash_devices.h"
 #include "nand_device_types.h"
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+#include "nand_generic_detect.h"
+#else
+#include "nand_flash_devices.h"
+#endif
 
 #define ROM_WAIT_THRESHOLD_US 1000
 /* Vendor tables pass typical tR/tPROG/tBERS; datasheet max is often several
@@ -23,6 +29,7 @@
 
 static const char *TAG = "nand_hal";
 
+#if !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
 static esp_err_t detect_chip(spi_nand_flash_device_t *dev)
 {
     uint8_t manufacturer_id = 0;
@@ -70,7 +77,9 @@ static esp_err_t enable_quad_io_mode(spi_nand_flash_device_t *dev)
 
     return ret;
 }
+#endif /* !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
+#if !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION || CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
 static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
 {
     uint8_t status;
@@ -85,6 +94,7 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
 
     return ret;
 }
+#endif
 
 esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
 {
@@ -104,14 +114,49 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->chip_source = SPI_NAND_CHIP_SOURCE_DATABASE;
 
-    ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+    {
+        uint8_t manufacturer_id = 0;
+        ESP_GOTO_ON_ERROR(spi_nand_read_manufacturer_id(*handle, &manufacturer_id), fail, TAG,
+                          "Failed to get the manufacturer ID");
+        (*handle)->device_info.manufacturer_id = manufacturer_id;
+
+        uint8_t device_id = 0;
+        if (spi_nand_read_device_id(*handle, &device_id, sizeof(device_id)) == ESP_OK) {
+            (*handle)->device_info.device_id = device_id;
+        }
+
+        ret = nand_generic_detect_init(*handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Generic chip detection failed");
+            goto fail;
+        }
+    }
+#else
+    ret = detect_chip(*handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to detect nand chip");
+        goto fail;
+    }
+#endif
+
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
+    ESP_LOGW(TAG, "Generic write/erase enabled: clearing protect register (flash may be altered)");
+    ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
+#else
+    ESP_LOGI(TAG, "Generic path: protect register left unchanged (read-only)");
+#endif
+#else
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
-    if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
+    if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO)
             && (*handle)->chip.has_quad_enable_bit) {
         ESP_GOTO_ON_ERROR(enable_quad_io_mode(*handle), fail, TAG, "Failed to enable quad mode");
     }
+#endif
 
     (*handle)->chip.page_size = 1 << (*handle)->chip.log2_page_size;
     (*handle)->chip.block_size = (1 << (*handle)->chip.log2_ppb) * (*handle)->chip.page_size;
@@ -125,6 +170,10 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
 
     (*handle)->temp_buffer = heap_caps_aligned_alloc(dma_alignment, (*handle)->chip.page_size + dma_alignment, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     ESP_GOTO_ON_FALSE((*handle)->temp_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
+
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+    ESP_GOTO_ON_ERROR(nand_generic_detect_probe(*handle), fail, TAG, "Generic non-destructive probe failed");
+#endif
 
     (*handle)->mutex = xSemaphoreCreateMutex();
     if (!(*handle)->mutex) {
@@ -168,7 +217,7 @@ static esp_err_t s_verify_write(spi_nand_flash_device_t *handle, const uint8_t *
 }
 #endif //CONFIG_NAND_FLASH_VERIFY_WRITE
 
-static esp_err_t wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_operation_time_us, uint8_t *status_out)
+esp_err_t nand_wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_operation_time_us, uint8_t *status_out)
 {
     if (expected_operation_time_us < ROM_WAIT_THRESHOLD_US) {
         esp_rom_delay_us(expected_operation_time_us);
@@ -214,14 +263,14 @@ static esp_err_t read_page_and_wait(spi_nand_flash_device_t *dev, uint32_t page,
 {
     ESP_RETURN_ON_ERROR(spi_nand_read_page(dev, page), TAG, "");
 
-    return wait_for_ready(dev, dev->chip.read_page_delay_us, status_out);
+    return nand_wait_for_ready(dev, dev->chip.read_page_delay_us, status_out);
 }
 
 static esp_err_t program_execute_and_wait(spi_nand_flash_device_t *dev, uint32_t page, uint8_t *status_out)
 {
     ESP_RETURN_ON_ERROR(spi_nand_program_execute(dev, page), TAG, "");
 
-    return wait_for_ready(dev, dev->chip.program_page_delay_us, status_out);
+    return nand_wait_for_ready(dev, dev->chip.program_page_delay_us, status_out);
 }
 
 static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t block, uint32_t offset)
@@ -280,7 +329,7 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
                       fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle, handle->chip.erase_block_delay_us, &status),
+    ESP_GOTO_ON_ERROR(nand_wait_for_ready(handle, handle->chip.erase_block_delay_us, &status),
                       fail, TAG, "");
     if ((status & STAT_ERASE_FAILED) != 0) {
         ret = ESP_ERR_NOT_FINISHED;
@@ -323,8 +372,8 @@ esp_err_t nand_erase_block(spi_nand_flash_device_t *handle, uint32_t block)
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
                       fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle,
-                                     handle->chip.erase_block_delay_us, &status),
+    ESP_GOTO_ON_ERROR(nand_wait_for_ready(handle,
+                                          handle->chip.erase_block_delay_us, &status),
                       fail, TAG, "");
 
     if ((status & STAT_ERASE_FAILED) != 0) {
@@ -480,12 +529,20 @@ static bool is_ecc_error(spi_nand_flash_device_t *dev, uint8_t status)
 {
     bool is_ecc_err = false;
     nand_ecc_status_t bits_corrected_status = NAND_ECC_OK;
-    if (dev->chip.ecc_data.ecc_status_reg_len_in_bits == 2) {
+    uint8_t ecc_len = dev->chip.ecc_data.ecc_status_reg_len_in_bits;
+
+    /* Generic path: do not invent STATUS ECC meaning; SPI success != ECC-clean. */
+    if (ecc_len == 0) {
+        dev->chip.ecc_data.ecc_corrected_bits_status = NAND_ECC_UNKNOWN;
+        return false;
+    }
+
+    if (ecc_len == 2) {
         bits_corrected_status = PACK_2BITS_STATUS(status, STAT_ECC1, STAT_ECC0);
         if (dev->chip.ecc_data.has_ecc_status_extension) {
             bits_corrected_status = refine_ecc_status_ext(dev, bits_corrected_status);
         }
-    } else if (dev->chip.ecc_data.ecc_status_reg_len_in_bits == 3) {
+    } else if (ecc_len == 3) {
         bits_corrected_status = PACK_3BITS_STATUS(status, STAT_ECC2, STAT_ECC1, STAT_ECC0);
     } else {
         bits_corrected_status = NAND_ECC_MAX;
