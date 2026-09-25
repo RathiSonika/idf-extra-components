@@ -90,6 +90,41 @@ Before calling **`spi_nand_flash_init_device()`** (legacy) or **`spi_nand_flash_
 
 See `spi_nand_flash_config_t` in [`include/spi_nand_flash.h`](include/spi_nand_flash.h). End-to-end SPI + config setup is shown in the FatFS example READMEs below.
 
+## Generic chip detection (opt-in, BDL only)
+
+By default the driver only initializes parts in the supported list (**vendor database**). Optional **generic chip detection** is for board bring-up, unknown parts, and lab override of a known JEDEC ID. It is **disabled by default** and requires **`CONFIG_NAND_FLASH_ENABLE_BDL=y`**.
+
+When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y`:
+
+1. Read JEDEC ID, then **bypass the vendor database** (including chips that already have a DB entry).
+2. Read ONFI/OTP parameter page (signature `ONFI` + CRC). Single-LUN only; geometry forced to **single plane**.
+3. If OTP fails, use `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` when all are non-zero; otherwise init fails.
+4. Apply a conservative profile: **SIO**, on-die ECC enabled, **ECC STATUS not decoded**, no QE.
+5. Non-destructive probes: GET FEATURE (status) + page 0 read (no Write Enable).
+6. Create **Flash BDL** via `nand_flash_get_blockdev()` — **read-only** unless `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE=y`.
+7. Wear-leveling BDL / `spi_nand_flash_init_with_layers()` / FatFS return **`ESP_ERR_NOT_SUPPORTED`**.
+
+When the option is **off**, behavior is database-only (same as before).
+
+**Kconfig** (Component config → SPI NAND Flash configuration):
+
+| Symbol | Default | Role |
+|--------|---------|------|
+| `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION` | `n` | Master gate (depends on BDL) |
+| `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` | `0` | OTP fallback (`0` = unset) |
+| `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for fallback / probes |
+| `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase |
+
+**Public API:** `spi_nand_get_chip_source()` returns `DATABASE` or `GENERIC`. For generic bring-up details (including whether geometry came from OTP vs Kconfig via `otp_valid`), use `spi_nand_get_generic_probe_report()` or Flash BDL ioctls `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` / `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT`.
+
+**Limitations (v1):**
+
+- Page 0 probe success does not prove full-die mapping on multi-plane parts.
+- Fixed **4-byte** BBM/page-used markers at column `page_size`; ONFI spare size is log-only.
+- Not a production FatFS / wear-leveling path — add a vendor DB entry for that.
+
+**Production guidance:** Keep generic detection **off** and use a supported/list entry before shipping.
+
 ## FATFS Integration
 
 Use the separate [`spi_nand_flash_fatfs`](../spi_nand_flash_fatfs) component for filesystem examples and helpers:

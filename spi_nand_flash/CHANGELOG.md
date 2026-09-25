@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 - feat: map ECC status correctly on GigaDevice chips using the ECCSE bits (status register F0h)
 
+## [1.5.0]
+### New Features
+- **Generic chip detection (opt-in, BDL only):** When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (requires BDL), init bypasses the vendor database, uses ONFI/OTP then `GENERIC_GEOMETRY_*` Kconfig fallback, runs non-destructive probes, and exposes a **read-only Flash BDL** by default. Optional `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` allows program/erase. Wear-leveling / FatFS are not supported on this path.
+- **`spi_nand_get_chip_source()`** (`DATABASE` | `GENERIC`), **`spi_nand_get_generic_probe_report()`** (OTP vs Kconfig via `otp_valid`), and matching Flash BDL ioctls.
+
+### Notes
+- Generic path uses SIO only; ECC STATUS is not decoded (`NAND_ECC_UNKNOWN`). OOB remains the baseline 4-byte markers at `page_size`.
+- Default builds (generic detection **off**) remain database-only.
+
 ## [1.4.4] - 2026-09-10
 
 ### Fixed
