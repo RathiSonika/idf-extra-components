@@ -70,6 +70,16 @@ menu "SPI NAND Flash configuration"
             help
                 Used only when ONFI/OTP fails. 0 means unset. Must be > 0 when used.
 
+        config NAND_FLASH_GENERIC_NUM_PLANES
+            int "Generic: number of planes"
+            default 1
+            range 1 4
+            help
+                Plane count for the generic path (OTP or Kconfig geometry).
+                Default 1 (single-plane). When > 1, program/read plane-select
+                column addressing is enabled automatically. Set from the
+                datasheet; incorrect values corrupt column addressing.
+
         config NAND_FLASH_GENERIC_T_R_US
             int "Generic: page read time (us)"
             default 100

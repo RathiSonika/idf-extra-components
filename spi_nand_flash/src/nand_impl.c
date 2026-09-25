@@ -133,6 +133,12 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
             ESP_LOGE(TAG, "Generic chip detection failed");
             goto fail;
         }
+#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
+        ESP_LOGW(TAG, "Generic write/erase enabled: clearing protect register (flash may be altered)");
+        ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
+#else
+        ESP_LOGI(TAG, "Generic path: protect register left unchanged (read-only)");
+#endif
     }
 #else
     ret = detect_chip(*handle);
@@ -140,16 +146,6 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
         ESP_LOGE(TAG, "Failed to detect nand chip");
         goto fail;
     }
-#endif
-
-#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
-#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
-    ESP_LOGW(TAG, "Generic write/erase enabled: clearing protect register (flash may be altered)");
-    ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
-#else
-    ESP_LOGI(TAG, "Generic path: protect register left unchanged (read-only)");
-#endif
-#else
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO)

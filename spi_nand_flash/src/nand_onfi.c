@@ -56,8 +56,8 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
     dev->chip.erase_block_delay_us = param->t_bers_max_us;
     dev->chip.program_page_delay_us = param->t_prog_max_us;
     /* Bytes 113–114 (ONFI interleaved addressing) are not mapped to this
-     * driver's plane-select column bit. Force single-plane on the ONFI path;
-     * dual-plane SPI NAND needs Kconfig geometry or a vendor DB row. */
+     * driver's plane-select column bit. Placeholder until
+     * nand_generic_apply_profile() applies CONFIG_NAND_FLASH_GENERIC_NUM_PLANES. */
     dev->chip.num_planes = 1;
     dev->chip.has_quad_enable_bit = 0;
     dev->chip.quad_enable_bit_pos = 0;

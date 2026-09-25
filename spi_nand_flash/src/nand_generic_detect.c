@@ -35,9 +35,15 @@ static void nand_generic_apply_io_limits(spi_nand_flash_device_t *dev)
 
 static void nand_generic_apply_profile(spi_nand_flash_device_t *dev)
 {
-    dev->chip.num_planes = 1;
+    dev->chip.num_planes = CONFIG_NAND_FLASH_GENERIC_NUM_PLANES;
     dev->chip.flags &= ~(NAND_FLAG_HAS_PROG_PLANE_SELECT | NAND_FLAG_HAS_READ_PLANE_SELECT
                          | NAND_FLAG_IDM_SAME_PARITY_REQUIRED);
+    /* Multi-plane SPI NAND uses the block%num_planes column bit; enable both
+     * select flags together (no separate Kconfig). Wrong num_planes corrupts
+     * addressing — verify against the datasheet. */
+    if (dev->chip.num_planes > 1) {
+        dev->chip.flags |= NAND_FLAG_HAS_PROG_PLANE_SELECT | NAND_FLAG_HAS_READ_PLANE_SELECT;
+    }
     dev->chip.has_quad_enable_bit = 0;
     dev->chip.quad_enable_bit_pos = 0;
     /* Do not decode STATUS ECC bits on this path (vendor encodings differ). */
@@ -46,6 +52,19 @@ static void nand_generic_apply_profile(spi_nand_flash_device_t *dev)
     nand_generic_apply_io_limits(dev);
 }
 
+/** Read CFG ECC-EN (GET FEATURE only). Does not SET FEATURE. */
+static bool nand_generic_read_on_die_ecc_enabled(spi_nand_flash_device_t *dev)
+{
+    uint8_t cfg = 0;
+    esp_err_t ret = spi_nand_read_register(dev, REG_CONFIG, &cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read CFG for on-die ECC status: %s", esp_err_to_name(ret));
+        return false;
+    }
+    return (cfg & REG_CONFIG_ECC_EN) != 0;
+}
+
+#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
 static esp_err_t nand_generic_enable_on_die_ecc(spi_nand_flash_device_t *dev)
 {
     uint8_t cfg = 0;
@@ -53,9 +72,13 @@ static esp_err_t nand_generic_enable_on_die_ecc(spi_nand_flash_device_t *dev)
     if (ret != ESP_OK) {
         return ret;
     }
+    if (cfg & REG_CONFIG_ECC_EN) {
+        return ESP_OK;
+    }
     cfg |= REG_CONFIG_ECC_EN;
     return spi_nand_write_register(dev, REG_CONFIG, cfg);
 }
+#endif
 
 static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool otp_valid)
 {
@@ -72,6 +95,7 @@ static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool
 #else
     r->write_erase_enabled = false;
 #endif
+    r->on_die_ecc_enabled = nand_generic_read_on_die_ecc_enabled(dev);
     strncpy(r->chip_name, dev->device_info.chip_name, sizeof(r->chip_name) - 1);
 }
 
@@ -92,11 +116,14 @@ esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
 
     nand_generic_apply_profile(dev);
 
+#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
+    /* Write/erase path: SET FEATURE to enable on-die ECC before program/erase. */
     ret = nand_generic_enable_on_die_ecc(dev);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set on-die ECC enable bit: %s", esp_err_to_name(ret));
         /* Continue: some parts power up with ECC already on. */
     }
+#endif
 
     nand_generic_fill_report_geometry(dev, otp_valid);
     return ESP_OK;
@@ -127,13 +154,14 @@ esp_err_t nand_generic_detect_probe(spi_nand_flash_device_t *dev)
     dev->generic_report.page0_read_ok = true;
     ESP_LOGI(TAG,
              "Generic probe OK: JEDEC MI=0x%02x DI=0x%04x otp=%d page=%" PRIu32
-             " ppb=%" PRIu32 " blocks=%" PRIu32 " write_erase=%d",
+             " ppb=%" PRIu32 " blocks=%" PRIu32 " write_erase=%d on_die_ecc=%d",
              (unsigned)dev->generic_report.manufacturer_id,
              (unsigned)dev->generic_report.device_id,
              (int)dev->generic_report.otp_valid,
              dev->generic_report.page_size,
              dev->generic_report.pages_per_block,
              dev->generic_report.num_blocks,
-             (int)dev->generic_report.write_erase_enabled);
+             (int)dev->generic_report.write_erase_enabled,
+             (int)dev->generic_report.on_die_ecc_enabled);
     return ESP_OK;
 }

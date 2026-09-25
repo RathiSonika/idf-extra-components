@@ -48,6 +48,8 @@ typedef struct {
     bool otp_valid;                     /*!< True if ONFI/OTP signature+CRC passed; false = Kconfig geometry */
     bool page0_read_ok;                 /*!< Non-destructive page 0 read probe */
     bool write_erase_enabled;           /*!< CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
+    bool on_die_ecc_enabled;            /*!< CFG bit 4 after init: read-only path reports power-up;
+                                         *   WRITE_ERASE path sets the bit then re-reads */
     uint32_t page_size;
     uint32_t pages_per_block;
     uint32_t num_blocks;
@@ -239,11 +241,12 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
 
 /**
- * @brief Get how chip geometry was detected during init.
+ * @brief Get how the chip was identified at init.
  *
- * @param handle Initialized device handle from spi_nand_flash_init_device() or
- *               spi_nand_flash_init_with_layers().
- * @param[out] out Source of geometry (database table, ONFI parameter page, or manual Kconfig).
+ * @param handle Initialized device handle from spi_nand_flash_init_device(),
+ *               nand_flash_get_blockdev(), or spi_nand_flash_init_with_layers().
+ * @param[out] out SPI_NAND_CHIP_SOURCE_DATABASE or SPI_NAND_CHIP_SOURCE_GENERIC.
+ *                 For generic OTP vs Kconfig details, use spi_nand_get_generic_probe_report().
  * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or out is NULL,
  *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
  */

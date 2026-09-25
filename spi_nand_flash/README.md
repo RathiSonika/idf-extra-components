@@ -99,7 +99,7 @@ When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y`:
 1. Read JEDEC ID, then **bypass the vendor database** (including chips that already have a DB entry).
 2. Read ONFI/OTP parameter page (signature `ONFI` + CRC). Single-LUN only; geometry forced to **single plane**.
 3. If OTP fails, use `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` when all are non-zero; otherwise init fails.
-4. Apply a conservative profile: **SIO**, on-die ECC enabled, **ECC STATUS not decoded**, no QE.
+4. Apply a conservative profile: **SIO**, **ECC STATUS not decoded**, no QE. On-die ECC: default path only **reads** CFG bit 4 into `on_die_ecc_enabled`; when `WRITE_ERASE` is enabled, SET FEATURE enables ECC then the report reflects the updated CFG.
 5. Non-destructive probes: GET FEATURE (status) + page 0 read (no Write Enable).
 6. Create **Flash BDL** via `nand_flash_get_blockdev()` — **read-only** unless `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE=y`.
 7. Wear-leveling BDL / `spi_nand_flash_init_with_layers()` / FatFS return **`ESP_ERR_NOT_SUPPORTED`**.
@@ -112,6 +112,7 @@ When the option is **off**, behavior is database-only (same as before).
 |--------|---------|------|
 | `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION` | `n` | Master gate (depends on BDL) |
 | `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` | `0` | OTP fallback (`0` = unset) |
+| `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` | `1` | Plane count; `>1` enables plane-select addressing |
 | `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for fallback / probes |
 | `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase |
 
