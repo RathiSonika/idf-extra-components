@@ -9,6 +9,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "esp_err.h"
 #include "nand_device_types.h"
 #ifndef CONFIG_IDF_TARGET_LINUX
@@ -25,6 +26,32 @@ extern "C" {
 #endif
 
 typedef struct spi_nand_flash_device_t spi_nand_flash_device_t;
+
+/** @brief How the attached NAND chip was identified at init */
+typedef enum {
+    SPI_NAND_CHIP_SOURCE_DATABASE = 0,  /*!< Vendor device table */
+    SPI_NAND_CHIP_SOURCE_GENERIC,       /*!< Generic detection (ONFI/OTP or Kconfig geometry) */
+} spi_nand_chip_source_t;
+
+/**
+ * @brief Probe / bring-up report for the generic chip detection path.
+ *
+ * Filled when CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION is enabled and init
+ * used the generic path. Available via spi_nand_get_generic_probe_report()
+ * or Flash BDL ioctl. Whether geometry came from OTP vs Kconfig is
+ * indicated by otp_valid (not a separate chip_source value).
+ */
+typedef struct {
+    uint8_t manufacturer_id;            /*!< JEDEC manufacturer ID */
+    uint16_t device_id;                 /*!< Device ID byte(s) when read */
+    char chip_name[32];                 /*!< Model string from ONFI or "generic-kconfig" */
+    bool otp_valid;                     /*!< True if ONFI/OTP signature+CRC passed; false = Kconfig geometry */
+    bool page0_read_ok;                 /*!< Non-destructive page 0 read probe */
+    bool write_erase_enabled;           /*!< CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
+    uint32_t page_size;
+    uint32_t pages_per_block;
+    uint32_t num_blocks;
+} spi_nand_generic_probe_report_t;
 
 #ifdef CONFIG_IDF_TARGET_LINUX
 #include "nand_linux_mmap_emul.h"
@@ -210,6 +237,29 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
  * @return ESP_OK on success, or a flash error code if the de-initialization failed.
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
+
+/**
+ * @brief Get how chip geometry was detected during init.
+ *
+ * @param handle Initialized device handle from spi_nand_flash_init_device() or
+ *               spi_nand_flash_init_with_layers().
+ * @param[out] out Source of geometry (database table, ONFI parameter page, or manual Kconfig).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or out is NULL,
+ *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
+ */
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out);
+
+/**
+ * @brief Get generic-detection probe report (bring-up / diagnostics).
+ *
+ * @param handle Initialized device (Flash BDL ctx or legacy handle on generic path).
+ * @param[out] out Report filled at init/probe time.
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG, ESP_ERR_INVALID_STATE if not
+ *         a generic-path device, or ESP_ERR_NOT_SUPPORTED if generic detection
+ *         is not compiled in.
+ */
+esp_err_t spi_nand_get_generic_probe_report(spi_nand_flash_device_t *handle,
+                                            spi_nand_generic_probe_report_t *out);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API
