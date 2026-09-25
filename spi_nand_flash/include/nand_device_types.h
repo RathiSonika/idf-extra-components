@@ -23,6 +23,7 @@ typedef enum {
     NAND_ECC_4_TO_6_BITS_CORRECTED = 3, /*!< 4-6 bits corrected */
     NAND_ECC_MAX_BITS_CORRECTED = NAND_ECC_4_TO_6_BITS_CORRECTED,
     NAND_ECC_7_8_BITS_CORRECTED = 5,    /*!< 7-8 bits corrected */
+    NAND_ECC_UNKNOWN = 6,               /*!< STATUS ECC layout not decoded (generic path) */
     NAND_ECC_MAX
 } nand_ecc_status_t;
 

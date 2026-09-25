@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 #include <string.h>
+#include "sdkconfig.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -182,6 +183,9 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
     }
 
     case ESP_BLOCKDEV_CMD_MARK_BAD_BLOCK: {
+        if (handle->device_flags.read_only) {
+            return ESP_ERR_NOT_SUPPORTED;
+        }
         uint32_t *block = (uint32_t *) args;
         esp_err_t ret = nand_mark_bad(dev, *block);
         return ret;
@@ -234,10 +238,29 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
     }
 
     case ESP_BLOCKDEV_CMD_COPY_PAGE: {
+        if (handle->device_flags.read_only) {
+            return ESP_ERR_NOT_SUPPORTED;
+        }
         esp_blockdev_cmd_arg_copy_page_t *copy_cmd = (esp_blockdev_cmd_arg_copy_page_t *)args;
         esp_err_t ret = nand_copy(dev, copy_cmd->src_page, copy_cmd->dst_page);
         return ret;
     }
+
+    case ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE: {
+        spi_nand_chip_source_t *source = (spi_nand_chip_source_t *)args;
+        *source = dev->chip_source;
+        return ESP_OK;
+    }
+
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+    case ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT: {
+        if (dev->chip_source != SPI_NAND_CHIP_SOURCE_GENERIC) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        memcpy(args, &dev->generic_report, sizeof(spi_nand_generic_probe_report_t));
+        return ESP_OK;
+    }
+#endif
 
     /* Full device scan for diagnostics; can be slow on large devices. Intended for debug/health checks only. */
     case ESP_BLOCKDEV_CMD_GET_ECC_STATS: {
@@ -339,7 +362,19 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config, esp_blockdev_
 
     blockdev->ops = &nand_flash_blockdev_ops;
 
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+    if (handle->chip_source == SPI_NAND_CHIP_SOURCE_GENERIC) {
+#if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
+        blockdev->device_flags.read_only = 0;
+#else
+        blockdev->device_flags.read_only = 1;
+#endif
+    } else {
+        blockdev->device_flags.read_only = 0;
+    }
+#else
     blockdev->device_flags.read_only = 0;
+#endif
     blockdev->device_flags.encrypted = 0;
     blockdev->device_flags.erase_before_write = 1;
     blockdev->device_flags.and_type_write = 1;

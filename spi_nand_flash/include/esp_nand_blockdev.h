@@ -136,6 +136,24 @@ extern "C" {
  */
 #define ESP_BLOCKDEV_CMD_COPY_PAGE                  (ESP_BLOCKDEV_CMD_NAND_BASE + 7)
 
+/** @brief Get generic chip detection probe report
+ *
+ * Valid only when the Flash BDL was created with generic chip detection.
+ * args points to spi_nand_generic_probe_report_t.
+ *
+ * @code{c}
+ * spi_nand_generic_probe_report_t report;
+ * esp_err_t ret = flash_bdl->ops->ioctl(flash_bdl, ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT, &report);
+ * @endcode
+ */
+#define ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT   (ESP_BLOCKDEV_CMD_NAND_BASE + 8)
+
+/** @brief Get chip geometry source (database / ONFI / manual)
+ *
+ * args points to spi_nand_chip_source_t.
+ */
+#define ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE            (ESP_BLOCKDEV_CMD_NAND_BASE + 9)
+
 /** @} */
 
 //=============================================================================
