@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "sdkconfig.h"
 #include "spi_nand_flash.h"
 #ifdef CONFIG_IDF_TARGET_LINUX
 #include "nand_linux_mmap_emul.h"
@@ -36,6 +37,17 @@ extern "C" {
 // Single-plane devices whose Internal Data Move requires same odd/even block
 // parity (e.g. some GigaDevice parts). nand_copy() uses a RAM path when parity differs.
 #define NAND_FLAG_IDM_SAME_PARITY_REQUIRED    BIT(2)
+
+/** Floor log2 for power-of-two page/ppb sizes (caller validates power-of-two). */
+static inline uint8_t nand_log2_u32(uint32_t n)
+{
+    uint8_t r = 0;
+    while (n > 1U) {
+        n >>= 1;
+        r++;
+    }
+    return r;
+}
 
 // Legacy typedef for compatibility - now uses nand_flash_geometry_t internally
 typedef nand_flash_geometry_t spi_nand_chip_t;
@@ -68,6 +80,10 @@ struct spi_nand_flash_device_t {
     spi_nand_flash_config_t config;
     spi_nand_chip_t chip;                  // Geometry (legacy typedef for nand_flash_geometry_t)
     nand_device_info_t device_info;        // Device identification (manufacturer, device ID, chip name)
+    spi_nand_chip_source_t chip_source; /*!< DATABASE or GENERIC */
+#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+    spi_nand_generic_probe_report_t generic_report;
+#endif
     const spi_nand_ops *ops;
     void *ops_priv_data;
     nand_ecc_decode_fn ecc_status_decoder;  // Per-chip C0h ECC status decoder; never NULL after init

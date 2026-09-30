@@ -38,6 +38,8 @@ typedef enum {
     NAND_ECC_6_BITS_CORRECTED,             /*!< exactly 6 bits corrected */
     NAND_ECC_7_BITS_CORRECTED,             /*!< exactly 7 bits corrected */
     NAND_ECC_8_BITS_CORRECTED,             /*!< exactly 8 bits corrected */
+    NAND_ECC_UNKNOWN,                      /*!< STATUS ECC not decoded (e.g. generic chip path);
+                                                SPI success does not imply ECC-clean */
     NAND_ECC_INVALID,                      /*!< Status could not be determined: the chip reported a reserved
                                                 pattern, or decoding it failed. Treat as not corrected. */
     NAND_ECC_MAX                           /*!< One past the highest value (not a count: 4 is unused); not a status */
