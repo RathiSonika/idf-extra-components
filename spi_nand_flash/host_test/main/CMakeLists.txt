@@ -6,6 +6,8 @@ else()
     list(APPEND src  "test_nand_flash.cpp" "test_nand_flash_ftl.cpp")
 endif()
 
+list(APPEND src "test_nand_onfi_crc.cpp" "test_nand_linux_emulator.cpp")
+
 idf_component_register(SRCS ${src}
                        WHOLE_ARCHIVE
                        )
