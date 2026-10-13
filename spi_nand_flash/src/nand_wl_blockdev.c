@@ -226,7 +226,7 @@ esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl, esp_blo
     spi_nand_flash_device_t *dev = (spi_nand_flash_device_t *)nand_bdl->ctx;
     ESP_RETURN_ON_FALSE(dev != NULL, ESP_ERR_INVALID_ARG, TAG, "spi_nand_flash_device_t pointer cannot be NULL");
 
-    if (dev->chip_source == SPI_NAND_CHIP_SOURCE_GENERIC) {
+    if (spi_nand_chip_source_is_generic(dev->chip_source)) {
         ESP_LOGE(TAG, "Wear-leveling BDL is not supported on the generic chip detection path");
         return ESP_ERR_NOT_SUPPORTED;
     }

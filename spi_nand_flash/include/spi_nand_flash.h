@@ -30,23 +30,27 @@ typedef struct spi_nand_flash_device_t spi_nand_flash_device_t;
 /** @brief How the attached NAND chip was identified at init */
 typedef enum {
     SPI_NAND_CHIP_SOURCE_DATABASE = 0,  /*!< Vendor device table */
-    SPI_NAND_CHIP_SOURCE_GENERIC,       /*!< Generic detection (ONFI/OTP or Kconfig geometry) */
+    SPI_NAND_CHIP_SOURCE_ONFI,          /*!< Geometry parsed from the ONFI parameter page */
+    SPI_NAND_CHIP_SOURCE_KCONFIG,       /*!< Geometry supplied via Kconfig fallback */
 } spi_nand_chip_source_t;
+
+/** True when init used the generic detection path (ONFI or Kconfig), not the vendor DB. */
+static inline bool spi_nand_chip_source_is_generic(spi_nand_chip_source_t source)
+{
+    return source == SPI_NAND_CHIP_SOURCE_ONFI || source == SPI_NAND_CHIP_SOURCE_KCONFIG;
+}
 
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
 /**
  * @brief Probe / bring-up report for the generic chip detection path.
  *
  * Filled when init used the generic path. Available via
- * spi_nand_get_generic_probe_report() or Flash BDL ioctl. Whether geometry
- * came from OTP vs Kconfig is indicated by otp_valid (not a separate
- * chip_source value).
+ * spi_nand_get_generic_probe_report() or Flash BDL ioctl.
+ * chip_source (ONFI vs KCONFIG) and param_page_valid describe geometry origin.
  */
 typedef struct {
-    uint8_t manufacturer_id;            /*!< JEDEC manufacturer ID */
-    uint16_t device_id;                 /*!< Device ID byte(s) when read */
-    char chip_name[32];                 /*!< Model string from ONFI or "generic-kconfig" */
-    bool otp_valid;                     /*!< True if ONFI/OTP signature+CRC passed; false = Kconfig geometry */
+    nand_device_info_t device_info;      /*!< JEDEC IDs and chip name from init */
+    bool param_page_valid;              /*!< True if ONFI parameter page signature+CRC passed */
     bool page0_read_ok;                 /*!< Non-destructive page 0 read probe */
     bool write_erase_enabled;           /*!< CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
     bool on_die_ecc_enabled;            /*!< CFG bit 4 after init: read-only path reports power-up;
@@ -248,7 +252,7 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
  *
  * @param handle Initialized device handle from spi_nand_flash_init_device(),
  *               nand_flash_get_blockdev(), or spi_nand_flash_init_with_layers().
- * @param[out] out SPI_NAND_CHIP_SOURCE_DATABASE or SPI_NAND_CHIP_SOURCE_GENERIC.
+ * @param[out] out SPI_NAND_CHIP_SOURCE_DATABASE, ONFI, or KCONFIG.
  * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or out is NULL,
  *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
  */

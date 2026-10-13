@@ -74,11 +74,14 @@ typedef struct {
 #endif
 } nand_flash_geometry_t;
 
+/* ONFI needs 34: manufacturer(12) + ' ' + model(20) + NUL. 40 leaves small headroom. */
+#define NAND_CHIP_NAME_MAX_LEN  40
+
 /** @brief NAND Flash device identification information */
 typedef struct {
     uint8_t manufacturer_id;                /*!< Manufacturer ID */
     uint16_t device_id;                     /*!< Device ID */
-    char chip_name[32];                     /*!< Chip name string */
+    char chip_name[NAND_CHIP_NAME_MAX_LEN]; /*!< Chip name string */
 } nand_device_info_t;
 
 #ifdef __cplusplus

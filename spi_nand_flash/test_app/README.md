@@ -20,7 +20,7 @@ CI builds all `sdkconfig.ci.*` files via the repo `idf_build_apps` matrix. On-ta
 Default GitHub CI may **build** `sdkconfig.ci.generic` without running on-target tests if the hardware runner is unavailable. Before merging changes that touch generic/ONFI init:
 
 1. Enable `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (use `sdkconfig.ci.generic` or equivalent; requires BDL).
-2. Confirm `nand_flash_get_blockdev()` succeeds, probe report has `page0_read_ok`, chip source is ONFI or MANUAL.
+2. Confirm `nand_flash_get_blockdev()` succeeds, probe report has `page0_read_ok`, chip source is `ONFI` or `KCONFIG`.
 3. Confirm `spi_nand_flash_init_with_layers()` returns `ESP_ERR_NOT_SUPPORTED`.
 4. With write/erase Kconfig **off**, confirm Flash BDL `read_only` and write/erase return `ESP_ERR_NOT_SUPPORTED`.
 

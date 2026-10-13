@@ -254,7 +254,7 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
 
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
     case ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT: {
-        if (dev->chip_source != SPI_NAND_CHIP_SOURCE_GENERIC) {
+        if (!spi_nand_chip_source_is_generic(dev->chip_source)) {
             return ESP_ERR_INVALID_STATE;
         }
         memcpy(args, &dev->generic_report, sizeof(spi_nand_generic_probe_report_t));
@@ -268,7 +268,7 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
 
         /* Generic path installs nand_ecc_decode_unknown; every page would look like an ECC
          * error. Refuse rather than return a false-positive health report. */
-        if (dev->chip_source == SPI_NAND_CHIP_SOURCE_GENERIC) {
+        if (spi_nand_chip_source_is_generic(dev->chip_source)) {
             ESP_LOGW(TAG, "GET_ECC_STATS not supported on generic chip detection (ECC STATUS unknown)");
             return ESP_ERR_NOT_SUPPORTED;
         }
@@ -372,7 +372,7 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config, esp_blockdev_
     blockdev->device_flags.read_only = 0;
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION && !CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
     /* Generic path is read-only unless WRITE_ERASE is explicitly enabled. */
-    blockdev->device_flags.read_only = (handle->chip_source == SPI_NAND_CHIP_SOURCE_GENERIC);
+    blockdev->device_flags.read_only = spi_nand_chip_source_is_generic(handle->chip_source);
 #endif
     blockdev->device_flags.encrypted = 0;
     blockdev->device_flags.erase_before_write = 1;

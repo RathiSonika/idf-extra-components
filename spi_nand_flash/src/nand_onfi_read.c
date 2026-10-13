@@ -5,10 +5,13 @@
  */
 
 #include <string.h>
+#include "esp_log.h"
 #include "spi_nand_oper.h"
 #include "nand_impl.h"
 #include "nand_onfi_param_page.h"
 #include "nand_onfi_crc.h"
+
+static const char *TAG = "nand_onfi_read";
 
 #define REG_CONFIG_OTP_EN   (1 << 6)
 
@@ -74,15 +77,26 @@ esp_err_t nand_onfi_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t
                 continue;
             }
             if (!is_onfi_signature_valid(data)) {
+                ESP_LOGW(TAG, "row addr 0x%06x copy %d: ONFI signature not found"
+                         " (first bytes: %02x %02x %02x %02x)",
+                         (unsigned)param_page_row_addrs[addr], copy,
+                         data[0], data[1], data[2], data[3]);
                 continue;
             }
             if (!nand_onfi_param_page_crc_valid(data, NAND_ONFI_PARAM_PAGE_SIZE)) {
+                ESP_LOGW(TAG, "row addr 0x%06x copy %d: ONFI signature OK but CRC failed",
+                         (unsigned)param_page_row_addrs[addr], copy);
                 continue;
             }
 
             ret = ESP_OK;
             goto restore;
         }
+    }
+
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "no valid ONFI parameter page found across %u row addr(s) x %d copies",
+                 (unsigned)PARAM_PAGE_NUM_ADDRS, NAND_ONFI_PARAM_PAGE_COPIES);
     }
 
 restore: {
