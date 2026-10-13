@@ -65,7 +65,6 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
     dev->device_info.manufacturer_id = param->jedec_id;
     snprintf(dev->device_info.chip_name, sizeof(dev->device_info.chip_name),
              "%.12s %.20s", param->manufacturer, param->model);
-    dev->device_info.chip_name[sizeof(dev->device_info.chip_name) - 1] = '\0';
 
     if (param->ecc_correctability > 0) {
         dev->chip.ecc_data.ecc_data_refresh_threshold =
@@ -109,7 +108,7 @@ esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev)
         ESP_LOGW(TAG, "Failed to read device ID after ONFI init: %s", esp_err_to_name(ret));
     }
 
-    dev->chip_source = SPI_NAND_CHIP_SOURCE_GENERIC;
+    dev->chip_source = SPI_NAND_CHIP_SOURCE_ONFI;
 
     ESP_LOGW(TAG,
              "Chip detected via ONFI parameter page: page_size=%u, pages_per_block=%u, blocks=%" PRIu32

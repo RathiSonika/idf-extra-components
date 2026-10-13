@@ -31,9 +31,10 @@ TEST_CASE("Linux emulator init unchanged when generic detection unavailable", "[
     REQUIRE(page_size == 2048);
     REQUIRE(block_size == 64 * 2048);
 
-    spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_GENERIC;
+    spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_ONFI;
     REQUIRE(spi_nand_get_chip_source(device_handle, &source) == ESP_OK);
     REQUIRE(source == SPI_NAND_CHIP_SOURCE_DATABASE);
+    REQUIRE_FALSE(spi_nand_chip_source_is_generic(source));
 
     spi_nand_flash_deinit_device(device_handle);
 }

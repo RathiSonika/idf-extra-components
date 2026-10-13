@@ -55,7 +55,8 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
 
     spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_DATABASE;
     TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE, &source));
-    TEST_ASSERT_EQUAL(SPI_NAND_CHIP_SOURCE_GENERIC, source);
+    TEST_ASSERT_TRUE(spi_nand_chip_source_is_generic(source));
+    TEST_ASSERT_TRUE(source == SPI_NAND_CHIP_SOURCE_ONFI || source == SPI_NAND_CHIP_SOURCE_KCONFIG);
 
     spi_nand_generic_probe_report_t report;
     memset(&report, 0, sizeof(report));
@@ -65,8 +66,10 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
     TEST_ASSERT_TRUE(report.pages_per_block > 0);
     TEST_ASSERT_TRUE(report.num_blocks > 0);
     TEST_ASSERT_EQUAL(CONFIG_NAND_FLASH_GENERIC_NUM_PLANES, report.num_planes);
+    TEST_ASSERT_EQUAL(source == SPI_NAND_CHIP_SOURCE_ONFI, report.param_page_valid);
 #if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
     TEST_ASSERT_TRUE(report.write_erase_enabled);
+    TEST_ASSERT_TRUE(report.on_die_ecc_enabled);
 #else
     TEST_ASSERT_FALSE(report.write_erase_enabled);
 #endif
