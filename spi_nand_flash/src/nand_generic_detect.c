@@ -24,10 +24,7 @@ static const char *TAG = "nand_generic";
 
 static void nand_generic_apply_io_limits(spi_nand_flash_device_t *dev)
 {
-    if (dev->config.io_mode == SPI_NAND_IO_MODE_QOUT
-            || dev->config.io_mode == SPI_NAND_IO_MODE_QIO
-            || dev->config.io_mode == SPI_NAND_IO_MODE_DOUT
-            || dev->config.io_mode == SPI_NAND_IO_MODE_DIO) {
+    if (dev->config.io_mode != SPI_NAND_IO_MODE_SIO) {
         ESP_LOGW(TAG, "Generic chip uses SIO only; forcing SPI_NAND_IO_MODE_SIO");
     }
     dev->config.io_mode = SPI_NAND_IO_MODE_SIO;
@@ -87,13 +84,12 @@ static esp_err_t nand_generic_enable_on_die_ecc(spi_nand_flash_device_t *dev)
 }
 #endif
 
-static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool otp_valid)
+static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool param_page_valid)
 {
     spi_nand_generic_probe_report_t *r = &dev->generic_report;
     memset(r, 0, sizeof(*r));
-    r->manufacturer_id = dev->device_info.manufacturer_id;
-    r->device_id = dev->device_info.device_id;
-    r->otp_valid = otp_valid;
+    r->device_info = dev->device_info;
+    r->param_page_valid = param_page_valid;
     r->page_size = 1U << dev->chip.log2_page_size;
     r->pages_per_block = 1U << dev->chip.log2_ppb;
     r->num_blocks = dev->chip.num_blocks;
@@ -104,7 +100,6 @@ static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool
     r->write_erase_enabled = false;
 #endif
     r->on_die_ecc_enabled = nand_generic_read_on_die_ecc_enabled(dev);
-    strlcpy(r->chip_name, dev->device_info.chip_name, sizeof(r->chip_name));
 }
 
 esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
@@ -112,9 +107,9 @@ esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
     ESP_LOGW(TAG, "Generic chip detection active: vendor database bypassed (including known JEDEC IDs)");
 
     esp_err_t ret = nand_onfi_try_init(dev);
-    bool otp_valid = (ret == ESP_OK);
-    if (!otp_valid) {
-        ESP_LOGW(TAG, "ONFI/OTP parameter page unavailable (%s); trying Kconfig geometry",
+    bool param_page_valid = (ret == ESP_OK);
+    if (!param_page_valid) {
+        ESP_LOGW(TAG, "ONFI parameter page unavailable (%s); trying Kconfig geometry",
                  esp_err_to_name(ret));
         ret = nand_generic_geometry_try_init(dev);
         if (ret != ESP_OK) {
@@ -125,15 +120,19 @@ esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
     nand_generic_apply_profile(dev);
 
 #if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
-    /* Write/erase path: SET FEATURE to enable on-die ECC before program/erase. */
+    /* Refuse write/erase unless CFG bit 4 is confirmed on after SET FEATURE. */
     ret = nand_generic_enable_on_die_ecc(dev);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to set on-die ECC enable bit: %s", esp_err_to_name(ret));
-        /* Continue: some parts power up with ECC already on. */
+        ESP_LOGE(TAG, "Failed to set on-die ECC enable bit: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    if (!nand_generic_read_on_die_ecc_enabled(dev)) {
+        ESP_LOGE(TAG, "On-die ECC enable bit not set after SET FEATURE; refusing write/erase path");
+        return ESP_ERR_NOT_SUPPORTED;
     }
 #endif
 
-    nand_generic_fill_report_geometry(dev, otp_valid);
+    nand_generic_fill_report_geometry(dev, param_page_valid);
     return ESP_OK;
 }
 
@@ -161,12 +160,12 @@ esp_err_t nand_generic_detect_probe(spi_nand_flash_device_t *dev)
 
     dev->generic_report.page0_read_ok = true;
     ESP_LOGI(TAG,
-             "Generic probe OK: JEDEC MI=0x%02x DI=0x%04x otp=%d page=%" PRIu32
+             "Generic probe OK: JEDEC MI=0x%02x DI=0x%04x param_page=%d page=%" PRIu32
              " ppb=%" PRIu32 " blocks=%" PRIu32 " planes=%u"
              " write_erase=%d on_die_ecc=%d",
-             (unsigned)dev->generic_report.manufacturer_id,
-             (unsigned)dev->generic_report.device_id,
-             (int)dev->generic_report.otp_valid,
+             (unsigned)dev->generic_report.device_info.manufacturer_id,
+             (unsigned)dev->generic_report.device_info.device_id,
+             (int)dev->generic_report.param_page_valid,
              dev->generic_report.page_size,
              dev->generic_report.pages_per_block,
              dev->generic_report.num_blocks,

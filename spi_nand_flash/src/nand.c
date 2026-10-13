@@ -241,7 +241,7 @@ esp_err_t spi_nand_get_generic_probe_report(spi_nand_flash_device_t *handle,
 {
     ESP_RETURN_ON_FALSE(handle != NULL && out != NULL, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
     ESP_RETURN_ON_FALSE(handle->mutex != NULL, ESP_ERR_INVALID_STATE, TAG, "device not initialized");
-    ESP_RETURN_ON_FALSE(handle->chip_source == SPI_NAND_CHIP_SOURCE_GENERIC,
+    ESP_RETURN_ON_FALSE(spi_nand_chip_source_is_generic(handle->chip_source),
                         ESP_ERR_INVALID_STATE, TAG, "not a generic-path device");
 
     xSemaphoreTake(handle->mutex, portMAX_DELAY);

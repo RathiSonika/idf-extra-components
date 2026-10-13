@@ -153,7 +153,7 @@ extern "C" {
 #define ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT   (ESP_BLOCKDEV_CMD_NAND_BASE + 8)
 #endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
-/** @brief Get chip geometry source (DATABASE or GENERIC)
+/** @brief Get chip geometry source (DATABASE, ONFI, or KCONFIG)
  *
  * args points to spi_nand_chip_source_t.
  */

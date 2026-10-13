@@ -38,8 +38,8 @@ menu "SPI NAND Flash configuration"
         default n
         help
             When enabled, chip init bypasses the vendor database (including known JEDEC IDs)
-            and uses ONFI/OTP parameter page geometry, falling back to
-            NAND_FLASH_GENERIC_GEOMETRY_* when OTP is invalid.
+            and uses ONFI parameter page geometry, falling back to
+            NAND_FLASH_GENERIC_GEOMETRY_* when the parameter page is invalid.
             Access is via Flash BDL (nand_flash_get_blockdev) only: read-only by default,
             no Dhara/wear-leveling. Not for production FatFS mounts.
             When disabled, init is database-only (smaller binary).
@@ -51,8 +51,8 @@ menu "SPI NAND Flash configuration"
             default 0
             range 0 8192
             help
-                Used only when ONFI/OTP parameter page is missing or invalid.
-                Data bytes per page from the datasheet. 0 means unset (OTP required).
+                Used only when ONFI parameter page is missing or invalid.
+                Data bytes per page from the datasheet. 0 means unset (parameter page required).
                 When non-zero must be a power of two in 512..8192.
 
         config NAND_FLASH_GENERIC_GEOMETRY_PAGES_PER_BLOCK
@@ -60,7 +60,7 @@ menu "SPI NAND Flash configuration"
             default 0
             range 0 256
             help
-                Used only when ONFI/OTP fails. 0 means unset.
+                Used only when ONFI parameter page fails. 0 means unset.
                 When non-zero must be a power of two in 32..256.
 
         config NAND_FLASH_GENERIC_GEOMETRY_NUM_BLOCKS
@@ -68,14 +68,14 @@ menu "SPI NAND Flash configuration"
             default 0
             range 0 65536
             help
-                Used only when ONFI/OTP fails. 0 means unset. Must be > 0 when used.
+                Used only when ONFI parameter page fails. 0 means unset. Must be > 0 when used.
 
         config NAND_FLASH_GENERIC_NUM_PLANES
             int "Generic: number of planes"
             default 1
             range 1 4
             help
-                Plane count for the generic path (OTP or Kconfig geometry).
+                Plane count for the generic path (ONFI or Kconfig geometry).
                 Default 1 (single-plane). When > 1, program/read plane-select
                 column addressing is enabled automatically. Set from the
                 datasheet; incorrect values corrupt column addressing.

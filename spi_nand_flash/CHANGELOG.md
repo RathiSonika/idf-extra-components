@@ -22,11 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [1.5.0]
 
 ### Added Feature
-- **Generic chip detection (opt-in, BDL only):** When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (requires BDL), init bypasses the vendor database, uses ONFI/OTP then `GENERIC_GEOMETRY_*` Kconfig fallback, runs non-destructive probes, and exposes a **read-only Flash BDL** by default. Optional `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` allows program/erase. Wear-leveling / FatFS are not supported on this path.
-- **`spi_nand_get_chip_source()`** (`DATABASE` | `GENERIC`), **`spi_nand_get_generic_probe_report()`** (OTP vs Kconfig via `otp_valid`, on-die ECC via `on_die_ecc_enabled`), and matching Flash BDL ioctls.
+- **Generic chip detection (opt-in, BDL only):** When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (requires BDL), init bypasses the vendor database, uses ONFI parameter page then `GENERIC_GEOMETRY_*` Kconfig fallback, runs non-destructive probes, and exposes a **read-only Flash BDL** by default. Optional `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` allows program/erase only after on-die ECC (CFG bit 4) is confirmed. Wear-leveling / FatFS are not supported on this path.
+- **`spi_nand_get_chip_source()`** (`DATABASE` | `ONFI` | `KCONFIG`), **`spi_nand_get_generic_probe_report()`** (`param_page_valid`, on-die ECC via `on_die_ecc_enabled`), and matching Flash BDL ioctls.
 
 ### Notes
-- Generic path uses SIO only; ECC STATUS is not decoded (`NAND_ECC_UNKNOWN`). OOB remains the baseline 4-byte markers at `page_size`.
+- Generic path uses SIO only; plane count from `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` (default 1). ECC STATUS is not decoded (`NAND_ECC_UNKNOWN`). OOB remains the baseline 4-byte markers at `page_size`.
 - Default builds (generic detection **off**) remain database-only.
 
 ## [1.4.4] - 2026-09-10

@@ -25,7 +25,7 @@ esp_err_t nand_generic_geometry_try_init(spi_nand_flash_device_t *dev)
     const uint32_t num_blocks = CONFIG_NAND_FLASH_GENERIC_GEOMETRY_NUM_BLOCKS;
 
     if (page_size == 0 || pages_per_block == 0 || num_blocks == 0) {
-        ESP_LOGE(TAG, "ONFI/OTP failed and GENERIC_GEOMETRY_* unset (need page_size, pages_per_block, num_blocks)");
+        ESP_LOGE(TAG, "ONFI parameter page failed and GENERIC_GEOMETRY_* unset (need page_size, pages_per_block, num_blocks)");
         return ESP_ERR_NOT_FOUND;
     }
     if (page_size < 512 || page_size > 8192 || !is_power_of_two(page_size)) {
@@ -45,10 +45,10 @@ esp_err_t nand_generic_geometry_try_init(spi_nand_flash_device_t *dev)
     dev->chip.erase_block_delay_us = CONFIG_NAND_FLASH_GENERIC_T_BERS_US;
     /* Plane/QE/ECC policy applied by nand_generic_apply_profile(). */
 
-    dev->chip_source = SPI_NAND_CHIP_SOURCE_GENERIC;
+    dev->chip_source = SPI_NAND_CHIP_SOURCE_KCONFIG;
 
     strlcpy(dev->device_info.chip_name, "generic-kconfig", sizeof(dev->device_info.chip_name));
 
-    ESP_LOGW(TAG, "Geometry from Kconfig fallback (OTP invalid/unavailable); verify against datasheet");
+    ESP_LOGW(TAG, "Geometry from Kconfig fallback (parameter page invalid/unavailable); verify against datasheet");
     return ESP_OK;
 }

@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <assert.h>
 #include "sdkconfig.h"
 #include "spi_nand_flash.h"
 #ifdef CONFIG_IDF_TARGET_LINUX
@@ -38,15 +39,11 @@ extern "C" {
 // parity (e.g. some GigaDevice parts). nand_copy() uses a RAM path when parity differs.
 #define NAND_FLAG_IDM_SAME_PARITY_REQUIRED    BIT(2)
 
-/** Floor log2 for power-of-two page/ppb sizes (caller validates power-of-two). */
+/** Floor log2(n) via clz; n must be > 0 (caller validates power-of-two page/ppb). */
 static inline uint8_t nand_log2_u32(uint32_t n)
 {
-    uint8_t r = 0;
-    while (n > 1U) {
-        n >>= 1;
-        r++;
-    }
-    return r;
+    assert(n > 0);
+    return (uint8_t)(31 - __builtin_clz(n));
 }
 
 // Legacy typedef for compatibility - now uses nand_flash_geometry_t internally
@@ -80,7 +77,7 @@ struct spi_nand_flash_device_t {
     spi_nand_flash_config_t config;
     spi_nand_chip_t chip;                  // Geometry (legacy typedef for nand_flash_geometry_t)
     nand_device_info_t device_info;        // Device identification (manufacturer, device ID, chip name)
-    spi_nand_chip_source_t chip_source; /*!< DATABASE or GENERIC */
+    spi_nand_chip_source_t chip_source; /*!< DATABASE, ONFI, or KCONFIG */
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
     spi_nand_generic_probe_report_t generic_report;
 #endif

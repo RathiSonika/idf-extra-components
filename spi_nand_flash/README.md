@@ -97,9 +97,9 @@ By default the driver only initializes parts in the supported list (**vendor dat
 When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y`:
 
 1. Read JEDEC ID, then **bypass the vendor database** (including chips that already have a DB entry).
-2. Read ONFI/OTP parameter page (signature `ONFI` + CRC). Single-LUN only. **Plane count is not taken from OTP** — set it with `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` (default **1**; values `>1` enable program/read plane-select column addressing). Wrong plane count corrupts addressing — use the datasheet.
-3. If OTP fails, use `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` when all are non-zero; otherwise init fails.
-4. Apply a conservative profile: **SIO**, **ECC STATUS not decoded**, no QE. On-die ECC: default path only **reads** CFG bit 4 into `on_die_ecc_enabled`; when `WRITE_ERASE` is enabled, SET FEATURE enables ECC then the report reflects the updated CFG.
+2. Read ONFI parameter page (signature `ONFI` + CRC). Sets `chip_source` to `SPI_NAND_CHIP_SOURCE_ONFI`.
+3. If the parameter page fails, use `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` when all are non-zero (`SPI_NAND_CHIP_SOURCE_KCONFIG`); otherwise init fails.
+4. Apply a conservative profile: **SIO**, **ECC STATUS not decoded**, no QE. Plane count comes from `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` (default **1**). Wrong plane count corrupts addressing — use the datasheet. On-die ECC: default path only **reads** CFG bit 4 into `on_die_ecc_enabled`; when `WRITE_ERASE` is enabled, SET FEATURE enables ECC and init **fails** if bit 4 is not confirmed.
 5. Non-destructive probes: GET FEATURE (status) + page 0 read (no Write Enable).
 6. Create **Flash BDL** via `nand_flash_get_blockdev()` — **read-only** unless `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE=y`.
 7. Wear-leveling BDL / `spi_nand_flash_init_with_layers()` / FatFS return **`ESP_ERR_NOT_SUPPORTED`**.
@@ -111,12 +111,12 @@ When the option is **off**, behavior is database-only (same as before).
 | Symbol | Default | Role |
 |--------|---------|------|
 | `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION` | `n` | Master gate (depends on BDL) |
-| `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` | `0` | OTP fallback (`0` = unset) |
-| `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` | `1` | **Configurable plane count** (1–4). Default single-plane; `>1` enables plane-select. Set from datasheet — incorrect values corrupt column addressing |
+| `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` | `0` | Parameter-page fallback (`0` = unset) |
+| `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` | `1` | Plane count (1–4). Default single-plane; `>1` enables plane-select. Set from datasheet — incorrect values corrupt column addressing |
 | `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for fallback / probes |
-| `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase |
+| `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase (requires on-die ECC bit confirmed) |
 
-**Public API:** `spi_nand_get_chip_source()` returns `DATABASE` or `GENERIC`. For generic bring-up details (including whether geometry came from OTP vs Kconfig via `otp_valid`, and `num_planes`), use `spi_nand_get_generic_probe_report()` or Flash BDL ioctls `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` / `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT`.
+**Public API:** `spi_nand_get_chip_source()` returns `DATABASE`, `ONFI`, or `KCONFIG` (`spi_nand_chip_source_is_generic()` covers the last two). For bring-up details (`param_page_valid`, `num_planes`, ECC), use `spi_nand_get_generic_probe_report()` or Flash BDL ioctls `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` / `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT`.
 
 **Limitations (v1):**
 

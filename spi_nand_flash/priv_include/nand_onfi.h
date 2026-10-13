@@ -17,7 +17,7 @@ esp_err_t nand_onfi_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t
 
 /**
  * Read and validate ONFI parameter page, populate chip geometry.
- * On success sets chip_source to SPI_NAND_CHIP_SOURCE_GENERIC.
+ * On success sets chip_source to SPI_NAND_CHIP_SOURCE_ONFI.
  */
 esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev);
 
