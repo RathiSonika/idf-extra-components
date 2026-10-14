@@ -107,6 +107,10 @@ esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
     ESP_LOGW(TAG, "Generic chip detection active: vendor database bypassed (including known JEDEC IDs)");
 
     esp_err_t ret = nand_onfi_try_init(dev);
+    /* OTP_EN may still be set; a page read would hit the OTP area. */
+    if (ret == ESP_ERR_INVALID_STATE) {
+        return ret;
+    }
     bool param_page_valid = (ret == ESP_OK);
     if (!param_page_valid) {
         ESP_LOGW(TAG, "ONFI parameter page unavailable (%s); trying Kconfig geometry",
