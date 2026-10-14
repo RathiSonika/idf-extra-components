@@ -85,10 +85,28 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
 esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev)
 {
     esp_err_t ret;
-    uint8_t *raw_buf = heap_caps_malloc(NAND_ONFI_PARAM_PAGE_SIZE, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    const size_t alignment = spi_nand_get_dma_alignment();
+    /* 256 is a multiple of the DMA alignment, so half-duplex reads this buffer directly.
+     * Full-duplex pads the length and bounces through temp_buffer. */
+    uint8_t *raw_buf = heap_caps_aligned_alloc(alignment, NAND_ONFI_PARAM_PAGE_SIZE,
+                                               MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     ESP_RETURN_ON_FALSE(raw_buf != NULL, ESP_ERR_NO_MEM, TAG, "parameter page buffer alloc failed");
 
+    uint8_t *bounce = NULL;
+    if (!(dev->config.flags & SPI_DEVICE_HALFDUPLEX)) {
+        bounce = heap_caps_aligned_alloc(alignment, NAND_ONFI_PARAM_PAGE_SIZE + alignment,
+                                         MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+        if (bounce == NULL) {
+            free(raw_buf);
+            ESP_LOGE(TAG, "ONFI full-duplex bounce alloc failed");
+            return ESP_ERR_NO_MEM;
+        }
+        dev->temp_buffer = bounce;
+    }
+
     ret = nand_onfi_read_parameter_page(dev, raw_buf, NAND_ONFI_PARAM_PAGE_SIZE);
+    dev->temp_buffer = NULL;
+    free(bounce);
     if (ret != ESP_OK) {
         free(raw_buf);
         return ret;

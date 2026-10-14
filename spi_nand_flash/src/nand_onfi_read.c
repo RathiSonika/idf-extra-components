@@ -77,14 +77,14 @@ esp_err_t nand_onfi_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t
                 continue;
             }
             if (!is_onfi_signature_valid(data)) {
-                ESP_LOGW(TAG, "row addr 0x%06x copy %d: ONFI signature not found"
+                ESP_LOGD(TAG, "row addr 0x%06x copy %d: ONFI signature not found"
                          " (first bytes: %02x %02x %02x %02x)",
                          (unsigned)param_page_row_addrs[addr], copy,
                          data[0], data[1], data[2], data[3]);
                 continue;
             }
             if (!nand_onfi_param_page_crc_valid(data, NAND_ONFI_PARAM_PAGE_SIZE)) {
-                ESP_LOGW(TAG, "row addr 0x%06x copy %d: ONFI signature OK but CRC failed",
+                ESP_LOGD(TAG, "row addr 0x%06x copy %d: ONFI signature OK but CRC failed",
                          (unsigned)param_page_row_addrs[addr], copy);
                 continue;
             }
@@ -102,7 +102,10 @@ esp_err_t nand_onfi_read_parameter_page(spi_nand_flash_device_t *handle, uint8_t
 restore: {
         esp_err_t restore_ret = spi_nand_write_register(handle, REG_CONFIG, orig_config);
         if (restore_ret != ESP_OK) {
-            return restore_ret;
+            /* Distinct from SPI errors before OTP_EN was set; caller must not fall through. */
+            ESP_LOGE(TAG, "Failed to restore config register (%s); OTP access may still be enabled",
+                     esp_err_to_name(restore_ret));
+            return ESP_ERR_INVALID_STATE;
         }
     }
     return ret;

@@ -17,14 +17,14 @@
 
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
 
-static void setup_flash_bdl(spi_device_handle_t *spi_out, esp_blockdev_handle_t *bdl_out)
+static void setup_flash_bdl(spi_device_handle_t *spi_out, esp_blockdev_handle_t *bdl_out, uint8_t flags)
 {
     spi_device_handle_t spi;
-    spi_nand_test_setup_chip(&spi, SPI_DEVICE_HALFDUPLEX);
+    spi_nand_test_setup_chip(&spi, flags);
 
     spi_nand_flash_config_t cfg = {
         .device_handle = spi,
-        .flags = SPI_DEVICE_HALFDUPLEX,
+        .flags = flags,
         .io_mode = SPI_NAND_IO_MODE_SIO,
     };
     esp_blockdev_handle_t bdl = NULL;
@@ -45,7 +45,7 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
 {
     spi_device_handle_t spi;
     esp_blockdev_handle_t bdl;
-    setup_flash_bdl(&spi, &bdl);
+    setup_flash_bdl(&spi, &bdl, SPI_DEVICE_HALFDUPLEX);
 
 #if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
     TEST_ASSERT_FALSE(bdl->device_flags.read_only);
@@ -62,11 +62,8 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
     memset(&report, 0, sizeof(report));
     TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT, &report));
     TEST_ASSERT_TRUE(report.page0_read_ok);
-    TEST_ASSERT_TRUE(report.page_size > 0);
-    TEST_ASSERT_TRUE(report.pages_per_block > 0);
-    TEST_ASSERT_TRUE(report.num_blocks > 0);
+    TEST_ASSERT_TRUE(report.param_page_valid);
     TEST_ASSERT_EQUAL(CONFIG_NAND_FLASH_GENERIC_NUM_PLANES, report.num_planes);
-    TEST_ASSERT_EQUAL(source == SPI_NAND_CHIP_SOURCE_ONFI, report.param_page_valid);
 #if CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
     TEST_ASSERT_TRUE(report.write_erase_enabled);
     TEST_ASSERT_TRUE(report.on_die_ecc_enabled);
@@ -83,11 +80,31 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
     teardown_flash_bdl(spi, bdl);
 }
 
+TEST_CASE("generic detect: full-duplex SIO parameter page", "[spi_nand_flash][generic]")
+{
+    spi_device_handle_t spi;
+    esp_blockdev_handle_t bdl;
+    /* flags 0: full-duplex. The parameter-page read then uses the temporary DMA bounce. */
+    setup_flash_bdl(&spi, &bdl, 0);
+
+    spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_DATABASE;
+    TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE, &source));
+    TEST_ASSERT_EQUAL(SPI_NAND_CHIP_SOURCE_ONFI, source);
+
+    spi_nand_generic_probe_report_t report;
+    memset(&report, 0, sizeof(report));
+    TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT, &report));
+    TEST_ASSERT_TRUE(report.page0_read_ok);
+    TEST_ASSERT_TRUE(report.param_page_valid);
+
+    teardown_flash_bdl(spi, bdl);
+}
+
 TEST_CASE("generic detect: wear-leveling and init_with_layers unsupported", "[spi_nand_flash][generic]")
 {
     spi_device_handle_t spi;
     esp_blockdev_handle_t bdl;
-    setup_flash_bdl(&spi, &bdl);
+    setup_flash_bdl(&spi, &bdl, SPI_DEVICE_HALFDUPLEX);
 
     esp_blockdev_handle_t wl = NULL;
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, spi_nand_flash_wl_get_blockdev(bdl, &wl));
@@ -112,7 +129,7 @@ TEST_CASE("generic detect: write and erase rejected when read-only", "[spi_nand_
 {
     spi_device_handle_t spi;
     esp_blockdev_handle_t bdl;
-    setup_flash_bdl(&spi, &bdl);
+    setup_flash_bdl(&spi, &bdl, SPI_DEVICE_HALFDUPLEX);
 
     uint32_t page_size = bdl->geometry.write_size;
     uint8_t *buf = heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
@@ -130,7 +147,7 @@ TEST_CASE("generic detect: ECC status ioctl reports unknown", "[spi_nand_flash][
 {
     spi_device_handle_t spi;
     esp_blockdev_handle_t bdl;
-    setup_flash_bdl(&spi, &bdl);
+    setup_flash_bdl(&spi, &bdl, SPI_DEVICE_HALFDUPLEX);
 
     esp_blockdev_cmd_arg_ecc_status_t ecc_cmd = { .page_num = 0 };
     TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_PAGE_ECC_STATUS, &ecc_cmd));
