@@ -2,7 +2,22 @@
 
 This driver is designed to support SPI NAND Flash with ESP chipsets.
 
-This component incorporates the [dhara library](https://github.com/dlbeer/dhara) via the `espressif/dhara` component (vendored in-tree; no separate submodule checkout required), licenced under the [LICENCE](https://github.com/dlbeer/dhara/blob/master/LICENSE)
+This component can use the [dhara library](https://github.com/dlbeer/dhara) via the `espressif/dhara` component (vendored in-tree; no separate submodule checkout required), licenced under the [LICENCE](https://github.com/dlbeer/dhara/blob/master/LICENSE). Dhara wear-leveling is enabled by default (`CONFIG_NAND_FLASH_ENABLE_WL`). Disabling it compiles out Dhara and is **not recommended** for general storage or filesystem use (raw NAND needs erase-before-program, bad-block handling, and wear management unless you provide your own FTL).
+
+When toggling `CONFIG_NAND_FLASH_ENABLE_WL`:
+
+```bash
+rm -f dependencies.lock
+idf.py fullclean reconfigure build
+```
+
+`idf.py reconfigure` / `fullclean` alone is **not** enough. Component Manager keeps
+solved components in `dependencies.lock`; a stale lock still yields
+`NOTE: [1/3] espressif/dhara` even when the config is off (and may still print
+`Skipping optional dependency` while processing dhara from the lock). After a correct
+resolve you should see `Processing 2 dependencies` and `[1/2] espressif/spi_nand_flash`.
+A nested dhara entry under `spi_nand_flash` with a `$CONFIG{...}` rule is only the
+optional declaration, not an included build.
 
 ## About SPI NAND Flash
 SPI NAND Flash combines the benefits of NAND Flash technology with the simplicity of the SPI interface, providing an efficient and cost-effective solution for non-volatile data storage in diverse applications. Its versatility, reliability, and affordability make it a popular choice for many embedded systems and electronic devices.
