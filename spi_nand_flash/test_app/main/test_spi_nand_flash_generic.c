@@ -51,7 +51,7 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
     TEST_ASSERT_FALSE(bdl->device_flags.read_only);
 #else
     TEST_ASSERT_TRUE(bdl->device_flags.read_only);
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
     spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_DATABASE;
     TEST_ESP_OK(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE, &source));
@@ -69,7 +69,7 @@ TEST_CASE("generic detect: Flash BDL init, read-only, probe report", "[spi_nand_
     TEST_ASSERT_TRUE(report.on_die_ecc_enabled);
 #else
     TEST_ASSERT_FALSE(report.write_erase_enabled);
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
     uint32_t page_size = bdl->geometry.read_size;
     uint8_t *buf = heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
@@ -141,7 +141,7 @@ TEST_CASE("generic detect: write and erase rejected when read-only", "[spi_nand_
 
     teardown_flash_bdl(spi, bdl);
 }
-#endif
+#endif /* !CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
 TEST_CASE("generic detect: ECC status ioctl reports unknown", "[spi_nand_flash][generic]")
 {

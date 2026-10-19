@@ -20,7 +20,7 @@
 #include "nand_generic_detect.h"
 #else
 #include "nand_flash_devices.h"
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
 #define ROM_WAIT_THRESHOLD_US 1000
 /* Vendor tables pass typical tR/tPROG/tBERS; datasheet max is often several
@@ -95,7 +95,7 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
 
     return ret;
 }
-#endif
+#endif /* !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION || CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
 esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
 {
@@ -140,9 +140,9 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
         ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 #else
         ESP_LOGI(TAG, "Generic path: protect register left unchanged (read-only)");
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
     }
-#else
+#else /* !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
     ret = detect_chip(*handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to detect nand chip");
@@ -154,7 +154,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
             && (*handle)->chip.has_quad_enable_bit) {
         ESP_GOTO_ON_ERROR(enable_quad_io_mode(*handle), fail, TAG, "Failed to enable quad mode");
     }
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
     (*handle)->chip.page_size = 1 << (*handle)->chip.log2_page_size;
     (*handle)->chip.block_size = (1 << (*handle)->chip.log2_ppb) * (*handle)->chip.page_size;
@@ -171,7 +171,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
 
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
     ESP_GOTO_ON_ERROR(nand_generic_detect_probe(*handle), fail, TAG, "Generic non-destructive probe failed");
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
     (*handle)->mutex = xSemaphoreCreateMutex();
     if (!(*handle)->mutex) {

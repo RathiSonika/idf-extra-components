@@ -40,13 +40,14 @@ static inline bool spi_nand_chip_source_is_generic(spi_nand_chip_source_t source
     return source == SPI_NAND_CHIP_SOURCE_ONFI || source == SPI_NAND_CHIP_SOURCE_KCONFIG;
 }
 
-#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
 /**
  * @brief Probe / bring-up report for the generic chip detection path.
  *
- * Filled when init used the generic path. Available via
- * spi_nand_get_generic_probe_report() or Flash BDL ioctl.
- * chip_source (ONFI vs KCONFIG) and param_page_valid describe geometry origin.
+ * Always declared so apps can call ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT
+ * without a Kconfig compile guard. Filled when
+ * CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION is enabled (that path always uses
+ * ONFI or Kconfig); otherwise the ioctl returns ESP_ERR_NOT_SUPPORTED.
+ * param_page_valid distinguishes ONFI vs Kconfig geometry origin.
  */
 typedef struct {
     nand_device_info_t device_info;      /*!< JEDEC IDs and chip name from init */
@@ -60,7 +61,6 @@ typedef struct {
     uint32_t num_blocks;
     uint8_t num_planes;                 /*!< Plane count (CONFIG_NAND_FLASH_GENERIC_NUM_PLANES) */
 } spi_nand_generic_probe_report_t;
-#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
 #ifdef CONFIG_IDF_TARGET_LINUX
 #include "nand_linux_mmap_emul.h"
@@ -257,19 +257,6 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
  *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
  */
 esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out);
-
-#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
-/**
- * @brief Get generic-detection probe report (bring-up / diagnostics).
- *
- * @param handle Initialized device (Flash BDL ctx or legacy handle on generic path).
- * @param[out] out Report filled at init/probe time.
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG, or ESP_ERR_INVALID_STATE if not
- *         a generic-path device.
- */
-esp_err_t spi_nand_get_generic_probe_report(spi_nand_flash_device_t *handle,
-                                            spi_nand_generic_probe_report_t *out);
-#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API

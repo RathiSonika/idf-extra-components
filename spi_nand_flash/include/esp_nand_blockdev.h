@@ -139,11 +139,12 @@ extern "C" {
  */
 #define ESP_BLOCKDEV_CMD_COPY_PAGE                  (ESP_BLOCKDEV_CMD_NAND_BASE + 7)
 
-#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
 /** @brief Get generic chip detection probe report
  *
- * Valid only when the Flash BDL was created with generic chip detection.
  * args points to spi_nand_generic_probe_report_t.
+ * Returns ESP_OK when CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION is enabled
+ * (init always uses ONFI or Kconfig on that path). Returns ESP_ERR_NOT_SUPPORTED
+ * when the option is off.
  *
  * @code{c}
  * spi_nand_generic_probe_report_t report;
@@ -151,7 +152,6 @@ extern "C" {
  * @endcode
  */
 #define ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT   (ESP_BLOCKDEV_CMD_NAND_BASE + 8)
-#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
 /** @brief Get chip geometry source (DATABASE, ONFI, or KCONFIG)
  *

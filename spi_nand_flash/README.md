@@ -116,7 +116,7 @@ When the option is **off**, behavior is database-only (same as before).
 | `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for fallback / probes |
 | `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase (requires on-die ECC bit confirmed) |
 
-**Public API:** `spi_nand_get_chip_source()` returns `DATABASE`, `ONFI`, or `KCONFIG` (`spi_nand_chip_source_is_generic()` covers the last two). For bring-up details (`param_page_valid`, `num_planes`, ECC), use `spi_nand_get_generic_probe_report()` or Flash BDL ioctls `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` / `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT`.
+**Public API:** `spi_nand_get_chip_source()` returns `DATABASE`, `ONFI`, or `KCONFIG` (`spi_nand_chip_source_is_generic()` covers the last two). For bring-up details (`param_page_valid`, `num_planes`, ECC), use Flash BDL ioctl `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT` (returns `ESP_ERR_NOT_SUPPORTED` when generic detection is off). Chip source is also available via `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE`.
 
 **Limitations (v1):**
 

@@ -80,7 +80,7 @@ struct spi_nand_flash_device_t {
     spi_nand_chip_source_t chip_source; /*!< DATABASE, ONFI, or KCONFIG */
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
     spi_nand_generic_probe_report_t generic_report;
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
     const spi_nand_ops *ops;
     void *ops_priv_data;
     nand_ecc_decode_fn ecc_status_decoder;  // Per-chip C0h ECC status decoder; never NULL after init
