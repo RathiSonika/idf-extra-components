@@ -92,8 +92,10 @@ esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev)
                                                MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     ESP_RETURN_ON_FALSE(raw_buf != NULL, ESP_ERR_NO_MEM, TAG, "parameter page buffer alloc failed");
 
+    /* Full-duplex only: param-page bounce in temp_buffer. Allocate/free only if unset. */
     uint8_t *bounce = NULL;
-    if (!(dev->config.flags & SPI_DEVICE_HALFDUPLEX)) {
+    bool bounce_owned = false;
+    if (!(dev->config.flags & SPI_DEVICE_HALFDUPLEX) && dev->temp_buffer == NULL) {
         bounce = heap_caps_aligned_alloc(alignment, NAND_ONFI_PARAM_PAGE_SIZE + alignment,
                                          MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         if (bounce == NULL) {
@@ -102,11 +104,14 @@ esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev)
             return ESP_ERR_NO_MEM;
         }
         dev->temp_buffer = bounce;
+        bounce_owned = true;
     }
 
     ret = nand_onfi_read_parameter_page(dev, raw_buf, NAND_ONFI_PARAM_PAGE_SIZE);
-    dev->temp_buffer = NULL;
-    free(bounce);
+    if (bounce_owned) {
+        free(bounce);
+        dev->temp_buffer = NULL;
+    }
     if (ret != ESP_OK) {
         free(raw_buf);
         return ret;

@@ -252,15 +252,16 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
         return ESP_OK;
     }
 
-#if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
     case ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT: {
-        if (!spi_nand_chip_source_is_generic(dev->chip_source)) {
-            return ESP_ERR_INVALID_STATE;
-        }
+#if !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION
+        ESP_LOGW(TAG, "GET_GENERIC_PROBE_REPORT: generic chip detection not enabled");
+        return ESP_ERR_NOT_SUPPORTED;
+#else
+        /* With generic detection on, a live Flash BDL always has ONFI/KCONFIG source. */
         memcpy(args, &dev->generic_report, sizeof(spi_nand_generic_probe_report_t));
         return ESP_OK;
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
     }
-#endif
 
     /* Full device scan for diagnostics; can be slow on large devices. Intended for debug/health checks only. */
     case ESP_BLOCKDEV_CMD_GET_ECC_STATS: {
@@ -373,7 +374,7 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config, esp_blockdev_
 #if CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION && !CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
     /* Generic path is read-only unless WRITE_ERASE is explicitly enabled. */
     blockdev->device_flags.read_only = spi_nand_chip_source_is_generic(handle->chip_source);
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION && !CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
     blockdev->device_flags.encrypted = 0;
     blockdev->device_flags.erase_before_write = 1;
     blockdev->device_flags.and_type_write = 1;

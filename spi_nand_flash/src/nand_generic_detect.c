@@ -82,7 +82,7 @@ static esp_err_t nand_generic_enable_on_die_ecc(spi_nand_flash_device_t *dev)
     cfg |= REG_CONFIG_ECC_EN;
     return spi_nand_write_register(dev, REG_CONFIG, cfg);
 }
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
 static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool param_page_valid)
 {
@@ -98,7 +98,7 @@ static void nand_generic_fill_report_geometry(spi_nand_flash_device_t *dev, bool
     r->write_erase_enabled = true;
 #else
     r->write_erase_enabled = false;
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
     r->on_die_ecc_enabled = nand_generic_read_on_die_ecc_enabled(dev);
 }
 
@@ -134,7 +134,7 @@ esp_err_t nand_generic_detect_init(spi_nand_flash_device_t *dev)
         ESP_LOGE(TAG, "On-die ECC enable bit not set after SET FEATURE; refusing write/erase path");
         return ESP_ERR_NOT_SUPPORTED;
     }
-#endif
+#endif /* CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
     nand_generic_fill_report_geometry(dev, param_page_valid);
     return ESP_OK;
