@@ -7,6 +7,7 @@
  */
 
 #include <string.h>
+#include "sdkconfig.h"
 #include "esp_check.h"
 #include "spi_nand_flash.h"
 #include "nand.h"
@@ -219,6 +220,18 @@ esp_err_t spi_nand_flash_get_block_size(spi_nand_flash_device_t *handle, uint32_
 esp_err_t spi_nand_flash_get_block_num(spi_nand_flash_device_t *handle, uint32_t *num_blocks)
 {
     *num_blocks = handle->chip.num_blocks;
+    return ESP_OK;
+}
+
+esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out)
+{
+    ESP_RETURN_ON_FALSE(handle != NULL && out != NULL, ESP_ERR_INVALID_ARG, TAG, "invalid argument");
+    ESP_RETURN_ON_FALSE(handle->mutex != NULL, ESP_ERR_INVALID_STATE, TAG, "device not initialized");
+
+    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    *out = handle->chip_source;
+    xSemaphoreGive(handle->mutex);
+
     return ESP_OK;
 }
 
