@@ -6,6 +6,8 @@
 
 #include "spi_nand_flash.h"
 #include "nand_linux_mmap_emul.h"
+#include "esp_blockdev.h"
+#include "esp_nand_blockdev.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,21 +22,18 @@ TEST_CASE("Linux emulator init unchanged when generic detection unavailable", "[
 {
     nand_file_mmap_emul_config_t conf = {"", 50 * 1024 * 1024, false};
     spi_nand_flash_config_t nand_flash_config = {&conf, 0, SPI_NAND_IO_MODE_SIO, 0};
-    spi_nand_flash_device_t *device_handle = nullptr;
+    esp_blockdev_handle_t bdl = nullptr;
 
-    REQUIRE(spi_nand_flash_init_device(&nand_flash_config, &device_handle) == ESP_OK);
+    REQUIRE(nand_flash_get_blockdev(&nand_flash_config, &bdl) == ESP_OK);
+    REQUIRE(bdl != nullptr);
 
-    uint32_t page_size = 0;
-    uint32_t block_size = 0;
-    REQUIRE(spi_nand_flash_get_page_size(device_handle, &page_size) == ESP_OK);
-    REQUIRE(spi_nand_flash_get_block_size(device_handle, &block_size) == ESP_OK);
-    REQUIRE(page_size == 2048);
-    REQUIRE(block_size == 64 * 2048);
+    REQUIRE(bdl->geometry.write_size == 2048);
+    REQUIRE(bdl->geometry.erase_size == 64 * 2048);
 
     spi_nand_chip_source_t source = SPI_NAND_CHIP_SOURCE_ONFI;
-    REQUIRE(spi_nand_get_chip_source(device_handle, &source) == ESP_OK);
+    REQUIRE(bdl->ops->ioctl(bdl, ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE, &source) == ESP_OK);
     REQUIRE(source == SPI_NAND_CHIP_SOURCE_DATABASE);
     REQUIRE_FALSE(spi_nand_chip_source_is_generic(source));
 
-    spi_nand_flash_deinit_device(device_handle);
+    bdl->ops->release(bdl);
 }

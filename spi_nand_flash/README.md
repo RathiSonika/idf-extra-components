@@ -113,10 +113,10 @@ When the option is **off**, behavior is database-only (same as before).
 | `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION` | `n` | Master gate (depends on BDL) |
 | `CONFIG_NAND_FLASH_GENERIC_GEOMETRY_*` | `0` | Parameter-page fallback (`0` = unset) |
 | `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` | `1` | Plane count (1–4). Default single-plane; `>1` enables plane-select. Set from datasheet — incorrect values corrupt column addressing |
-| `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for fallback / probes |
+| `CONFIG_NAND_FLASH_GENERIC_T_*_US` | conservative | Timings for Kconfig geometry, and for an ONFI field that is 0. Non-zero ONFI timings are kept. Busy timeout is 10× this value |
 | `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` | `n` | Allow Flash BDL program/erase (requires on-die ECC bit confirmed) |
 
-**Public API:** `spi_nand_get_chip_source()` returns `DATABASE`, `ONFI`, or `KCONFIG` (`spi_nand_chip_source_is_generic()` covers the last two). For bring-up details (`param_page_valid`, `num_planes`, ECC), use Flash BDL ioctl `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT` (returns `ESP_ERR_NOT_SUPPORTED` when generic detection is off). Chip source is also available via `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE`.
+**Public API:** On the flash block device from `nand_flash_get_blockdev()`, ioctl `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` returns `DATABASE`, `ONFI`, or `KCONFIG`. The wear-leveling block device does not implement that ioctl. For bring-up details (`param_page_valid`, `num_planes`, ECC), use `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT` on the same flash block device (returns `ESP_ERR_NOT_SUPPORTED` when generic detection is off).
 
 **Limitations (v1):**
 

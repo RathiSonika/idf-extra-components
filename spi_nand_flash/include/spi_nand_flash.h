@@ -247,17 +247,6 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
 
-/**
- * @brief Get how the chip was identified at init.
- *
- * @param handle Initialized device handle from spi_nand_flash_init_device(),
- *               nand_flash_get_blockdev(), or spi_nand_flash_init_with_layers().
- * @param[out] out SPI_NAND_CHIP_SOURCE_DATABASE, ONFI, or KCONFIG.
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if handle or out is NULL,
- *         ESP_ERR_INVALID_STATE if the handle is not fully initialized.
- */
-esp_err_t spi_nand_get_chip_source(spi_nand_flash_device_t *handle, spi_nand_chip_source_t *out);
-
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API
 //---------------------------------------------------------------------------------------------------------------------------------------------

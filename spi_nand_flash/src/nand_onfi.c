@@ -9,6 +9,7 @@
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "nand.h"
 #include "nand_onfi.h"
 #include "nand_onfi_param_page.h"
@@ -45,16 +46,35 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
     if (param->blocks_per_lun == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (param->t_r_max_us == 0 || param->t_prog_max_us == 0 || param->t_bers_max_us == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
 
     dev->chip.log2_page_size = nand_log2_u32(param->data_bytes_per_page);
     dev->chip.log2_ppb = nand_log2_u32(param->pages_per_block);
     dev->chip.num_blocks = param->blocks_per_lun;
-    dev->chip.read_page_delay_us = param->t_r_max_us;
-    dev->chip.erase_block_delay_us = param->t_bers_max_us;
-    dev->chip.program_page_delay_us = param->t_prog_max_us;
+    /* A CRC-valid page can still leave a timing at 0. Geometry stays; the
+     * zero field uses the same Kconfig bound as the geometry-fallback path.
+     * nand_wait_for_ready() treats this as the expected busy time (timeout is
+     * 10x). A non-zero ONFI value is kept. */
+    if (param->t_r_max_us == 0) {
+        ESP_LOGW(TAG, "ONFI tR is 0; using CONFIG_NAND_FLASH_GENERIC_T_R_US=%d us",
+                 CONFIG_NAND_FLASH_GENERIC_T_R_US);
+        dev->chip.read_page_delay_us = CONFIG_NAND_FLASH_GENERIC_T_R_US;
+    } else {
+        dev->chip.read_page_delay_us = param->t_r_max_us;
+    }
+    if (param->t_prog_max_us == 0) {
+        ESP_LOGW(TAG, "ONFI tPROG is 0; using CONFIG_NAND_FLASH_GENERIC_T_PROG_US=%d us",
+                 CONFIG_NAND_FLASH_GENERIC_T_PROG_US);
+        dev->chip.program_page_delay_us = CONFIG_NAND_FLASH_GENERIC_T_PROG_US;
+    } else {
+        dev->chip.program_page_delay_us = param->t_prog_max_us;
+    }
+    if (param->t_bers_max_us == 0) {
+        ESP_LOGW(TAG, "ONFI tBERS is 0; using CONFIG_NAND_FLASH_GENERIC_T_BERS_US=%d us",
+                 CONFIG_NAND_FLASH_GENERIC_T_BERS_US);
+        dev->chip.erase_block_delay_us = CONFIG_NAND_FLASH_GENERIC_T_BERS_US;
+    } else {
+        dev->chip.erase_block_delay_us = param->t_bers_max_us;
+    }
     /* Bytes 113–114 (ONFI interleaved addressing) are not mapped to this
      * driver's plane-select column bit. Placeholder until
      * nand_generic_apply_profile() applies CONFIG_NAND_FLASH_GENERIC_NUM_PLANES. */
@@ -62,7 +82,13 @@ static esp_err_t parse_parameter_page(spi_nand_flash_device_t *dev, const nand_p
     dev->chip.has_quad_enable_bit = 0;
     dev->chip.quad_enable_bit_pos = 0;
 
-    dev->device_info.manufacturer_id = param->jedec_id;
+    /* Byte 64 is not the Read ID (9Fh) manufacturer byte. nand_init_device()
+     * already stored that. A blank or stale byte 64 must not replace it. */
+    if (param->jedec_id != 0 && param->jedec_id != dev->device_info.manufacturer_id) {
+        ESP_LOGW(TAG,
+                 "ONFI byte 64 (0x%02x) differs from Read ID manufacturer 0x%02x; keeping Read ID",
+                 param->jedec_id, dev->device_info.manufacturer_id);
+    }
     snprintf(dev->device_info.chip_name, sizeof(dev->device_info.chip_name),
              "%.12s %.20s", param->manufacturer, param->model);
 
@@ -121,14 +147,6 @@ esp_err_t nand_onfi_try_init(spi_nand_flash_device_t *dev)
     free(raw_buf);
     if (ret != ESP_OK) {
         return ret;
-    }
-
-    uint8_t device_id = 0;
-    ret = spi_nand_read_device_id(dev, &device_id, sizeof(device_id));
-    if (ret == ESP_OK) {
-        dev->device_info.device_id = device_id;
-    } else {
-        ESP_LOGW(TAG, "Failed to read device ID after ONFI init: %s", esp_err_to_name(ret));
     }
 
     dev->chip_source = SPI_NAND_CHIP_SOURCE_ONFI;

@@ -125,9 +125,15 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
                           "Failed to get the manufacturer ID");
         (*handle)->device_info.manufacturer_id = manufacturer_id;
 
+        /* Best-effort 1-byte device ID for the probe report only. ONFI does not
+         * give the ID length, so multi-byte parts (e.g. Winbond) may be truncated.
+         * Geometry/init do not use device_id. */
         uint8_t device_id = 0;
         if (spi_nand_read_device_id(*handle, &device_id, sizeof(device_id)) == ESP_OK) {
             (*handle)->device_info.device_id = device_id;
+            ESP_LOGW(TAG,
+                     "Generic path: reported device ID 0x%02x may be incomplete for multi-byte-ID parts",
+                     device_id);
         }
 
         ret = nand_generic_detect_init(*handle);
@@ -554,6 +560,7 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
 {
     ESP_LOGD(TAG, "copy, src=%"PRIu32", dst=%"PRIu32"", src, dst);
     esp_err_t ret = ESP_OK;
+    uint8_t *copy_buf = NULL;
 #if CONFIG_NAND_FLASH_VERIFY_WRITE
     uint8_t *temp_buf = NULL;
 #endif //CONFIG_NAND_FLASH_VERIFY_WRITE
@@ -577,8 +584,7 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
                                                   src_column_addr, dst_column_addr);
 
     if (need_ram_copy) {
-        // Copy through RAM when HW Internal Data Move is not valid for this src/dst pair.
-        uint8_t *copy_buf = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+        copy_buf = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         ESP_GOTO_ON_FALSE(copy_buf, ESP_ERR_NO_MEM, fail, TAG, "Failed to allocate copy buffer");
 
         ESP_GOTO_ON_ERROR(spi_nand_read(handle, copy_buf, src_column_addr, handle->chip.page_size), fail, TAG, "");
@@ -592,13 +598,8 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
         uint8_t markers[4] = { 0xFF, 0xFF, 0x00, 0x00 };
         ESP_GOTO_ON_ERROR(spi_nand_program_load(handle, (uint8_t *)&markers,
                                                 dst_column_addr + handle->chip.page_size, 4), fail, TAG, "");
-        ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
-
-        if ((status & STAT_PROGRAM_FAILED) != 0) {
-            ESP_LOGD(TAG, "copy, prog failed");
-            return ESP_ERR_NOT_FINISHED;
-        }
         free(copy_buf);
+        copy_buf = NULL;
     }
 
     ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
@@ -635,6 +636,7 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
     return ret;
 
 fail:
+    free(copy_buf);
 #if CONFIG_NAND_FLASH_VERIFY_WRITE
     free(temp_buf);
 #endif //CONFIG_NAND_FLASH_VERIFY_WRITE

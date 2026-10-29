@@ -155,6 +155,8 @@ extern "C" {
 
 /** @brief Get chip geometry source (DATABASE, ONFI, or KCONFIG)
  *
+ * Call on the flash block device from nand_flash_get_blockdev().
+ * The wear-leveling block device returns ESP_ERR_NOT_SUPPORTED for this ioctl.
  * args points to spi_nand_chip_source_t.
  */
 #define ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE            (ESP_BLOCKDEV_CMD_NAND_BASE + 9)

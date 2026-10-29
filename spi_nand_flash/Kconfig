@@ -85,24 +85,27 @@ menu "SPI NAND Flash configuration"
             default 100
             range 1 100000
             help
-                Page read busy time (t_R) used when geometry comes from Kconfig fallback,
-                and as a conservative default bound for probes. Prefer datasheet max.
+                Page read busy time (t_R). Used for Kconfig geometry, and when a
+                CRC-valid ONFI page leaves tR at 0. A non-zero ONFI tR is kept.
+                nand_wait_for_ready() times out at 10x this value. Prefer datasheet max.
 
         config NAND_FLASH_GENERIC_T_PROG_US
             int "Generic: page program time (us)"
             default 1000
             range 1 100000
             help
-                Page program busy time (t_PROG). Used for geometry-fallback profile and
-                when write/erase is enabled.
+                Page program busy time (t_PROG). Used for Kconfig geometry, and when
+                a CRC-valid ONFI page leaves tPROG at 0. A non-zero ONFI tPROG is kept.
+                nand_wait_for_ready() times out at 10x this value. Prefer datasheet max.
 
         config NAND_FLASH_GENERIC_T_BERS_US
             int "Generic: block erase time (us)"
             default 10000
             range 1 1000000
             help
-                Block erase busy time (t_BERS). Used for geometry-fallback profile and
-                when write/erase is enabled.
+                Block erase busy time (t_BERS). Used for Kconfig geometry, and when
+                a CRC-valid ONFI page leaves tBERS at 0. A non-zero ONFI tBERS is kept.
+                nand_wait_for_ready() times out at 10x this value. Prefer datasheet max.
 
         config NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE
             bool "Allow program/erase on generic chip path"
