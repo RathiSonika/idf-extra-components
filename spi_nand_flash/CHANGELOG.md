@@ -18,6 +18,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `nand_ecc_data_t.ecc_status_reg_len_in_bits`: no longer used by the driver
 
+
+## [1.5.0]
+
+### Added Feature
+- **Generic chip detection (opt-in, BDL only):** When `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (requires BDL), init bypasses the vendor database, uses ONFI parameter page then `GENERIC_GEOMETRY_*` Kconfig fallback, runs non-destructive probes, and exposes a **read-only Flash BDL** by default. Optional `CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE` allows program/erase only after on-die ECC (CFG bit 4) is confirmed. Wear-leveling / FatFS are not supported on this path.
+- Flash BDL ioctls `ESP_BLOCKDEV_CMD_GET_CHIP_SOURCE` (`DATABASE` | `ONFI` | `KCONFIG`) and `ESP_BLOCKDEV_CMD_GET_GENERIC_PROBE_REPORT`. The probe-report ioctl returns `ESP_ERR_NOT_SUPPORTED` when generic detection is off.
+
+### Notes
+- Generic path uses SIO only; plane count from `CONFIG_NAND_FLASH_GENERIC_NUM_PLANES` (default 1). ECC STATUS is not decoded (`NAND_ECC_UNKNOWN`). OOB remains the baseline 4-byte markers at `page_size`.
+- Default builds (generic detection **off**) remain database-only.
+
 ## [1.4.4] - 2026-09-10
 
 ### Fixed
