@@ -13,6 +13,7 @@
 #include "dhara/error.h"
 #include "esp_check.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #ifndef CONFIG_IDF_TARGET_LINUX
 #include "spi_nand_oper.h"
 #endif
@@ -31,6 +32,8 @@ typedef struct {
     esp_blockdev_handle_t bdl_handle;
 #endif
     spi_nand_flash_device_t *parent_handle;
+    uint8_t *work_buffer;   ///< Dhara map journal page (WL-owned)
+    uint8_t *read_buffer;   ///< Page cache for dhara_map_read (WL-owned)
 } spi_nand_flash_dhara_priv_data_t;
 
 static esp_err_t dhara_init(spi_nand_flash_device_t *handle, void *bdl_handle)
@@ -51,7 +54,25 @@ static esp_err_t dhara_init(spi_nand_flash_device_t *handle, void *bdl_handle)
     dhara_priv_data->dhara_nand.log2_ppb = handle->chip.log2_ppb;
     dhara_priv_data->dhara_nand.num_blocks = handle->chip.num_blocks;
 
-    dhara_map_init(&dhara_priv_data->dhara_map, &dhara_priv_data->dhara_nand, handle->work_buffer, handle->config.gc_factor);
+#ifndef CONFIG_IDF_TARGET_LINUX
+    size_t dma_alignment = spi_nand_get_dma_alignment();
+    dhara_priv_data->work_buffer = heap_caps_aligned_alloc(dma_alignment, handle->chip.page_size,
+                                                           MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    dhara_priv_data->read_buffer = heap_caps_aligned_alloc(dma_alignment, handle->chip.page_size,
+                                                           MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+#else
+    dhara_priv_data->work_buffer = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DEFAULT);
+    dhara_priv_data->read_buffer = heap_caps_malloc(handle->chip.page_size, MALLOC_CAP_DEFAULT);
+#endif
+    if (dhara_priv_data->work_buffer == NULL || dhara_priv_data->read_buffer == NULL) {
+        free(dhara_priv_data->work_buffer);
+        free(dhara_priv_data->read_buffer);
+        free(dhara_priv_data);
+        handle->ops_priv_data = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
+    dhara_map_init(&dhara_priv_data->dhara_map, &dhara_priv_data->dhara_nand, dhara_priv_data->work_buffer, handle->config.gc_factor);
     dhara_error_t ignored;
     dhara_map_resume(&dhara_priv_data->dhara_map, &ignored);
 
@@ -62,7 +83,7 @@ static esp_err_t dhara_deinit(spi_nand_flash_device_t *handle)
 {
     spi_nand_flash_dhara_priv_data_t *dhara_priv_data = (spi_nand_flash_dhara_priv_data_t *)handle->ops_priv_data;
     // clear dhara map
-    dhara_map_init(&dhara_priv_data->dhara_map, &dhara_priv_data->dhara_nand, handle->work_buffer, handle->config.gc_factor);
+    dhara_map_init(&dhara_priv_data->dhara_map, &dhara_priv_data->dhara_nand, dhara_priv_data->work_buffer, handle->config.gc_factor);
     dhara_map_clear(&dhara_priv_data->dhara_map);
     return ESP_OK;
 }
@@ -71,10 +92,10 @@ static esp_err_t dhara_read(spi_nand_flash_device_t *handle, uint8_t *buffer, dh
 {
     spi_nand_flash_dhara_priv_data_t *dhara_priv_data = (spi_nand_flash_dhara_priv_data_t *)handle->ops_priv_data;
     dhara_error_t err;
-    if (dhara_map_read(&dhara_priv_data->dhara_map, sector_id, handle->read_buffer, &err)) {
+    if (dhara_map_read(&dhara_priv_data->dhara_map, sector_id, dhara_priv_data->read_buffer, &err)) {
         return ESP_ERR_FLASH_BASE + err;
     }
-    memcpy(buffer, handle->read_buffer, handle->chip.page_size);
+    memcpy(buffer, dhara_priv_data->read_buffer, handle->chip.page_size);
     return ESP_OK;
 }
 
@@ -170,7 +191,14 @@ esp_err_t nand_wl_attach_ops(spi_nand_flash_device_t *handle)
 
 esp_err_t nand_wl_detach_ops(spi_nand_flash_device_t *handle)
 {
-    free(handle->ops_priv_data);
+    if (handle->ops_priv_data != NULL) {
+        spi_nand_flash_dhara_priv_data_t *dhara_priv_data =
+            (spi_nand_flash_dhara_priv_data_t *)handle->ops_priv_data;
+        free(dhara_priv_data->work_buffer);
+        free(dhara_priv_data->read_buffer);
+        free(dhara_priv_data);
+        handle->ops_priv_data = NULL;
+    }
     handle->ops = NULL;
     return ESP_OK;
 }

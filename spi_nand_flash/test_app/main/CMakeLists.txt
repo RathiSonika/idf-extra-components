@@ -1,8 +1,11 @@
 set(src "test_app_main.c" "test_spi_nand_common.c")
 
 if(CONFIG_NAND_FLASH_ENABLE_BDL)
+    # Flash BDL tests always compile; WL/Dhara BDL cases are gated in-file
+    # on CONFIG_NAND_FLASH_ENABLE_WL.
     list(APPEND src "test_spi_nand_flash_bdl.c")
-else()
+elseif(CONFIG_NAND_FLASH_ENABLE_WL)
+    # Legacy API requires wear-leveling; skip when WL is disabled.
     list(APPEND src "test_spi_nand_flash.c")
 endif()
 
