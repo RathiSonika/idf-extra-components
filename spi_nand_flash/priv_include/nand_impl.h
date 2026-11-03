@@ -11,6 +11,9 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "nand.h"
+#ifndef CONFIG_IDF_TARGET_LINUX
+#include "spi_nand_transport.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +43,18 @@ extern "C" {
  */
 esp_err_t nand_init_device(spi_nand_flash_config_t *config,
                            spi_nand_flash_device_t **handle);
+
+#ifndef CONFIG_IDF_TARGET_LINUX
+/**
+ * @brief Initialize NAND core with a pre-created transport (GPSPI or MSPI).
+ *
+ * Takes ownership of @p transport on success (destroyed on deinit / failure cleanup).
+ */
+esp_err_t nand_init_device_with_transport(spi_nand_flash_io_mode_t io_mode,
+                                          uint8_t gc_factor,
+                                          spi_nand_transport_t *transport,
+                                          spi_nand_flash_device_t **handle);
+#endif
 
 esp_err_t nand_is_bad(spi_nand_flash_device_t *handle, uint32_t b, bool *is_bad_status);
 esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t b);

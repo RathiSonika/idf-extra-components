@@ -18,6 +18,9 @@
 #include "freertos/semphr.h"
 #include "nand_device_types.h"
 #include "nand_ecc_decode.h"
+#ifndef CONFIG_IDF_TARGET_LINUX
+#include "spi_nand_transport.h"
+#endif
 
 #ifdef CONFIG_NAND_FLASH_ENABLE_BDL
 #include "esp_blockdev.h"
@@ -71,6 +74,9 @@ struct spi_nand_flash_device_t {
     const spi_nand_ops *ops;
     void *ops_priv_data;
     nand_ecc_decode_fn ecc_status_decoder;  // Per-chip C0h ECC status decoder; never NULL after init
+#ifndef CONFIG_IDF_TARGET_LINUX
+    spi_nand_transport_t *transport;       // GPSPI or MSPI bus backend
+#endif
     uint8_t *work_buffer;
     uint8_t *read_buffer;
     uint8_t *temp_buffer;

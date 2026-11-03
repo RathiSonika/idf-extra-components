@@ -233,12 +233,34 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
     free(handle->read_buffer);
 #ifndef CONFIG_IDF_TARGET_LINUX
     free(handle->temp_buffer);
+    if (handle->transport && handle->transport->destroy) {
+        handle->transport->destroy(handle->transport);
+        handle->transport = NULL;
+    }
 #endif
     if (handle->mutex) {
         vSemaphoreDelete(handle->mutex);
     }
     free(handle);
     return ret;
+}
+
+esp_err_t spi_nand_flash_read_physical_page(spi_nand_flash_device_t *handle,
+                                            uint32_t physical_page,
+                                            uint8_t *buffer)
+{
+    ESP_RETURN_ON_FALSE(handle && buffer, ESP_ERR_INVALID_ARG, TAG, "invalid arg");
+    return nand_read(handle, physical_page, 0, handle->chip.page_size, buffer);
+}
+
+esp_err_t spi_nand_flash_read_physical(spi_nand_flash_device_t *handle,
+                                       uint32_t physical_page,
+                                       size_t offset,
+                                       size_t length,
+                                       uint8_t *buffer)
+{
+    ESP_RETURN_ON_FALSE(handle && buffer, ESP_ERR_INVALID_ARG, TAG, "invalid arg");
+    return nand_read(handle, physical_page, offset, length, buffer);
 }
 
 // NEW LAYERED ARCHITECTURE API IMPLEMENTATION

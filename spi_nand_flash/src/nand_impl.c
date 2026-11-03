@@ -87,17 +87,22 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
     return ret;
 }
 
-esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
+esp_err_t nand_init_device_with_transport(spi_nand_flash_io_mode_t io_mode,
+                                          uint8_t gc_factor,
+                                          spi_nand_transport_t *transport,
+                                          spi_nand_flash_device_t **handle)
 {
     esp_err_t ret = ESP_OK;
-    ESP_RETURN_ON_FALSE(config->device_handle != NULL, ESP_ERR_INVALID_ARG, TAG, "Spi device pointer can not be NULL");
+    ESP_RETURN_ON_FALSE(transport != NULL && handle != NULL, ESP_ERR_INVALID_ARG, TAG, "invalid arg");
 
     *handle = heap_caps_calloc(1, sizeof(spi_nand_flash_device_t), MALLOC_CAP_DEFAULT);
     if (*handle == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
-    memcpy(&(*handle)->config, config, sizeof(spi_nand_flash_config_t));
+    (*handle)->config.io_mode = io_mode;
+    (*handle)->config.gc_factor = gc_factor;
+    (*handle)->transport = transport;
 
     (*handle)->chip.ecc_data.ecc_data_refresh_threshold = 4;
     (*handle)->chip.ecc_data.ecc_status_reg_len_in_bits = 2;
@@ -110,7 +115,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
-    if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
+    if (((*handle)->config.io_mode == SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode == SPI_NAND_IO_MODE_QIO)
             && (*handle)->chip.has_quad_enable_bit) {
         ESP_GOTO_ON_ERROR(enable_quad_io_mode(*handle), fail, TAG, "Failed to enable quad mode");
     }
@@ -142,8 +147,41 @@ fail:
     if ((*handle)->mutex) {
         vSemaphoreDelete((*handle)->mutex);
     }
+    if ((*handle)->transport && (*handle)->transport->destroy) {
+        (*handle)->transport->destroy((*handle)->transport);
+        (*handle)->transport = NULL;
+    }
     free(*handle);
+    *handle = NULL;
     return ret;
+}
+
+esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
+{
+#if defined(CONFIG_NAND_FLASH_TRANSPORT_GPSPI) && !CONFIG_NAND_FLASH_TRANSPORT_GPSPI
+    (void)config;
+    (void)handle;
+    ESP_RETURN_ON_FALSE(false, ESP_ERR_NOT_SUPPORTED, TAG, "GPSPI transport not enabled in Kconfig");
+#else
+    ESP_RETURN_ON_FALSE(config != NULL && config->device_handle != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Spi device pointer can not be NULL");
+
+    spi_nand_transport_t *transport = NULL;
+    esp_err_t ret = spi_nand_transport_gpspi_create(config->device_handle, config->flags, &transport);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nand_init_device_with_transport(config->io_mode, config->gc_factor, transport, handle);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    /* Keep legacy config fields for callers that inspect device_handle/flags. */
+    (*handle)->config = *config;
+    (*handle)->transport = transport;
+    return ESP_OK;
+#endif
 }
 
 /***************************************************************************************/

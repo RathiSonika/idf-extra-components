@@ -294,6 +294,12 @@ static esp_err_t nand_flash_blockdev_release(esp_blockdev_handle_t handle)
     free(dev_handle->work_buffer);
     free(dev_handle->read_buffer);
     free(dev_handle->temp_buffer);
+#ifndef CONFIG_IDF_TARGET_LINUX
+    if (dev_handle->transport && dev_handle->transport->destroy) {
+        dev_handle->transport->destroy(dev_handle->transport);
+        dev_handle->transport = NULL;
+    }
+#endif
     if (dev_handle->mutex) {
         vSemaphoreDelete(dev_handle->mutex);
     }
@@ -325,13 +331,7 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config, esp_blockdev_
 
     esp_blockdev_t *blockdev = (esp_blockdev_t *) heap_caps_calloc(1, sizeof(esp_blockdev_t), MALLOC_CAP_DEFAULT);
     if (blockdev == NULL) {
-        free(handle->work_buffer);
-        free(handle->read_buffer);
-        free(handle->temp_buffer);
-        if (handle->mutex) {
-            vSemaphoreDelete(handle->mutex);
-        }
-        free(handle);
+        spi_nand_flash_deinit_device(handle);
         return ESP_ERR_NO_MEM;
     }
     blockdev->ctx = (void *)handle;

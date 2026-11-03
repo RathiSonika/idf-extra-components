@@ -3,19 +3,30 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * SPDX-FileContributor: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2015-2026 Espressif Systems (Shanghai) CO LTD
  */
 
 #pragma once
 
 #include <stdint.h>
 #include <esp_err.h>
-#include <driver/spi_master.h>
-#include "nand.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct spi_nand_flash_device_t spi_nand_flash_device_t;
+
+/**
+ * Transport-agnostic transaction flags for the NAND command layer.
+ * GPSPI backend maps these to SPI_TRANS_* values.
+ */
+#define SPI_NAND_TRANS_USE_TXDATA                 (1U << 0)
+#define SPI_NAND_TRANS_USE_RXDATA                 (1U << 1)
+#define SPI_NAND_TRANS_MODE_DIO                   (1U << 2)
+#define SPI_NAND_TRANS_MODE_QIO                   (1U << 3)
+#define SPI_NAND_TRANS_MULTILINE_ADDR             (1U << 4)
+#define SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL    (1U << 5)
 
 struct spi_nand_transaction_t {
     uint8_t command;
@@ -26,7 +37,7 @@ struct spi_nand_transaction_t {
     uint32_t miso_len;
     uint8_t *miso_data;
     uint32_t dummy_bits;
-    uint32_t flags;
+    uint32_t flags;   /*!< SPI_NAND_TRANS_* */
 };
 
 typedef struct spi_nand_transaction_t spi_nand_transaction_t;

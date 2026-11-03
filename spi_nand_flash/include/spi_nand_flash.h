@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 #include "nand_device_types.h"
@@ -210,6 +211,24 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle);
  * @return ESP_OK on success, or a flash error code if the de-initialization failed.
  */
 esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
+
+/**
+ * @brief Read one physical page (bypasses Dhara / WL).
+ *
+ * For loaders and raw access. Logical WL page APIs remain separate.
+ */
+esp_err_t spi_nand_flash_read_physical_page(spi_nand_flash_device_t *handle,
+                                            uint32_t physical_page,
+                                            uint8_t *buffer);
+
+/**
+ * @brief Read a byte range from a physical page (bypasses Dhara / WL).
+ */
+esp_err_t spi_nand_flash_read_physical(spi_nand_flash_device_t *handle,
+                                       uint32_t physical_page,
+                                       size_t offset,
+                                       size_t length,
+                                       uint8_t *buffer);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------
 // NEW LAYERED ARCHITECTURE API

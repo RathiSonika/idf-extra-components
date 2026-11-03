@@ -25,6 +25,24 @@ menu "SPI NAND Flash configuration"
             Note: This option requires ESP-IDF >= 6.0 (esp_blockdev component).
             Enabling this on ESP-IDF < 6.0 will result in a build error.
 
+    config NAND_FLASH_TRANSPORT_GPSPI
+        bool "Enable GPSPI transport backend"
+        default y
+        depends on !IDF_TARGET_LINUX
+        help
+            Compile the GPSPI (spi_master) transport used by external SPI NAND.
+            Application init continues to pass spi_device_handle_t and typically
+            mounts via WL BDL.
+
+    config NAND_FLASH_TRANSPORT_MSPI
+        bool "Enable MSPI transport backend (primary NAND scaffold)"
+        default n
+        depends on !IDF_TARGET_LINUX
+        help
+            Compile the MSPI transport used for primary NAND bring-up (Raw NAND
+            path / loader). Not selected by normal applications; system code uses
+            spi_nand_flash_primary.h. MSPI host wiring is still scaffolded.
+
     config NAND_ENABLE_STATS
         bool "Host test statistics enabled"
         depends on IDF_TARGET_LINUX

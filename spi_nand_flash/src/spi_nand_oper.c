@@ -3,12 +3,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * SPDX-FileContributor: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2015-2026 Espressif Systems (Shanghai) CO LTD
  */
 
 #include <string.h>
 #include "spi_nand_oper.h"
-#include "driver/spi_master.h"
+#include "spi_nand_transport.h"
+#include "nand.h"
+#include "esp_idf_version.h"
 #include "esp_memory_utils.h"
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE == 1
 #include "esp_private/esp_cache_private.h"
@@ -16,41 +18,23 @@
 
 esp_err_t spi_nand_execute_transaction(spi_nand_flash_device_t *handle, spi_nand_transaction_t *transaction)
 {
-    uint8_t half_duplex = handle->config.flags & SPI_DEVICE_HALFDUPLEX;
-    if (!half_duplex) {
-        uint32_t len = transaction->miso_len > transaction->mosi_len ? transaction->miso_len : transaction->mosi_len;
-        transaction->miso_len = len;
-        transaction->mosi_len = len;
+    spi_nand_transport_t *tr = handle->transport;
+    if (tr == NULL || tr->transmit == NULL) {
+        return ESP_ERR_INVALID_STATE;
     }
 
-    spi_transaction_ext_t e = {
-        .base = {
-            .flags = SPI_TRANS_VARIABLE_ADDR |  SPI_TRANS_VARIABLE_CMD |  SPI_TRANS_VARIABLE_DUMMY | transaction->flags,
-            .rxlength = transaction->miso_len * 8,
-            .rx_buffer = transaction->miso_data,
-            .length = transaction->mosi_len * 8,
-            .tx_buffer = transaction->mosi_data,
-            .addr = transaction->address,
-            .cmd = transaction->command
-        },
-        .address_bits = transaction->address_bytes * 8,
-        .command_bits = 8,
-        .dummy_bits = transaction->dummy_bits
-    };
-
-    if (transaction->flags & SPI_TRANS_USE_TXDATA) {
-        assert(transaction->mosi_len <= 4 && "SPI_TRANS_USE_TXDATA used for a long transaction");
-        memcpy(e.base.tx_data, transaction->mosi_data, transaction->mosi_len);
-    }
-    if (transaction->flags & SPI_TRANS_USE_RXDATA) {
-        assert(transaction->miso_len <= 4 && "SPI_TRANS_USE_RXDATA used for a long transaction");
-    }
-
-    esp_err_t ret = spi_device_transmit(handle->config.device_handle, (spi_transaction_t *) &e);
-    if (ret == ESP_OK) {
-        if (transaction->flags == SPI_TRANS_USE_RXDATA) {
-            memcpy(transaction->miso_data, e.base.rx_data, transaction->miso_len);
+    esp_err_t ret = ESP_OK;
+    if (tr->lock) {
+        ret = tr->lock(tr);
+        if (ret != ESP_OK) {
+            return ret;
         }
+    }
+
+    ret = tr->transmit(tr, transaction);
+
+    if (tr->unlock) {
+        tr->unlock(tr);
     }
     return ret;
 }
@@ -64,7 +48,7 @@ esp_err_t spi_nand_read_manufacturer_id(spi_nand_flash_device_t *handle, uint8_t
         .address_bytes = 1,
         .miso_len = 1,
         .miso_data = manufacturer_id,
-        .flags = SPI_TRANS_USE_RXDATA,
+        .flags = SPI_NAND_TRANS_USE_RXDATA,
     };
     ret = spi_nand_execute_transaction(handle, &t);
     return ret;
@@ -79,7 +63,7 @@ esp_err_t spi_nand_read_device_id(spi_nand_flash_device_t *handle, uint8_t *devi
         .address_bytes = 2,
         .miso_len = length,
         .miso_data = device_id,
-        .flags = SPI_TRANS_USE_RXDATA,
+        .flags = SPI_NAND_TRANS_USE_RXDATA,
     };
     ret = spi_nand_execute_transaction(handle, &t);
     return ret;
@@ -93,7 +77,7 @@ esp_err_t spi_nand_read_register(spi_nand_flash_device_t *handle, uint8_t reg, u
         .address = reg,
         .miso_len = 1,
         .miso_data = val,
-        .flags = SPI_TRANS_USE_RXDATA,
+        .flags = SPI_NAND_TRANS_USE_RXDATA,
     };
 
     return spi_nand_execute_transaction(handle, &t);
@@ -107,7 +91,7 @@ esp_err_t spi_nand_write_register(spi_nand_flash_device_t *handle, uint8_t reg, 
         .address = reg,
         .mosi_len = 1,
         .mosi_data = &val,
-        .flags = SPI_TRANS_USE_TXDATA,
+        .flags = SPI_NAND_TRANS_USE_TXDATA,
     };
 
     return spi_nand_execute_transaction(handle, &t);
@@ -157,7 +141,7 @@ static uint16_t check_length_alignment(spi_nand_flash_device_t *handle, uint16_t
             data_len = ((length + (alignment - 1)) & ~(alignment - 1));
         }
     }
-    if (!(handle->config.flags & SPI_DEVICE_HALFDUPLEX)) {
+    if (handle->transport && !handle->transport->is_half_duplex(handle->transport)) {
         data_len = data_len + alignment;
     }
     return data_len;
@@ -174,7 +158,7 @@ static bool spi_nand_buf_dma_aligned(const void *buf, size_t alignment)
  *
  * When @p length is DMA-aligned but @p user_buf is not DMA-capable or not properly
  * aligned (ESP-IDF >= 5.2), data is copied into handle->temp_buffer and
- * @p *out_manual_dma is set so the caller sets SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL.
+ * @p *out_manual_dma is set so the caller sets SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL.
  *
  * When @p length is not DMA-aligned we cannot pad the write (extra bytes would be
  * programmed into the NAND page); @p *out_manual_dma stays false and the SPI driver
@@ -245,7 +229,7 @@ static void spi_nand_rx_prepare_read_buffers(spi_nand_flash_device_t *handle, ui
 
 static esp_err_t spi_nand_quad_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length)
 {
-    uint32_t spi_flags = SPI_TRANS_MODE_QIO;
+    uint32_t spi_flags = SPI_NAND_TRANS_MODE_QIO;
     uint8_t cmd = CMD_READ_X4;
     uint8_t dummy_bits = 8;
 
@@ -255,7 +239,7 @@ static esp_err_t spi_nand_quad_read(spi_nand_flash_device_t *handle, uint8_t *da
     spi_nand_rx_prepare_read_buffers(handle, data, length, &data_read, &data_read_len);
 
     if (handle->config.io_mode == SPI_NAND_IO_MODE_QIO) {
-        spi_flags |= SPI_TRANS_MULTILINE_ADDR;
+        spi_flags |= SPI_NAND_TRANS_MULTILINE_ADDR;
         cmd = CMD_READ_QIO;
         dummy_bits = 4;
     }
@@ -271,7 +255,7 @@ static esp_err_t spi_nand_quad_read(spi_nand_flash_device_t *handle, uint8_t *da
     };
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
-    t.flags |= SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+    t.flags |= SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL;
 #endif
     esp_err_t ret = spi_nand_execute_transaction(handle, &t);
 
@@ -284,7 +268,7 @@ static esp_err_t spi_nand_quad_read(spi_nand_flash_device_t *handle, uint8_t *da
 
 static esp_err_t spi_nand_dual_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length)
 {
-    uint32_t spi_flags = SPI_TRANS_MODE_DIO;
+    uint32_t spi_flags = SPI_NAND_TRANS_MODE_DIO;
     uint8_t cmd = CMD_READ_X2;
     uint8_t dummy_bits = 8;
 
@@ -294,7 +278,7 @@ static esp_err_t spi_nand_dual_read(spi_nand_flash_device_t *handle, uint8_t *da
     spi_nand_rx_prepare_read_buffers(handle, data, length, &data_read, &data_read_len);
 
     if (handle->config.io_mode == SPI_NAND_IO_MODE_DIO) {
-        spi_flags |= SPI_TRANS_MULTILINE_ADDR;
+        spi_flags |= SPI_NAND_TRANS_MULTILINE_ADDR;
         cmd = CMD_READ_DIO;
         dummy_bits = 4;
     }
@@ -310,7 +294,7 @@ static esp_err_t spi_nand_dual_read(spi_nand_flash_device_t *handle, uint8_t *da
     };
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
-    t.flags |= SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+    t.flags |= SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL;
 #endif
     esp_err_t ret = spi_nand_execute_transaction(handle, &t);
 
@@ -323,7 +307,7 @@ static esp_err_t spi_nand_dual_read(spi_nand_flash_device_t *handle, uint8_t *da
 
 static esp_err_t spi_nand_fast_read(spi_nand_flash_device_t *handle, uint8_t *data, uint16_t column, uint16_t length)
 {
-    uint8_t half_duplex = handle->config.flags & SPI_DEVICE_HALFDUPLEX;
+    bool half_duplex = handle->transport && handle->transport->is_half_duplex(handle->transport);
     uint8_t *data_read;
     uint16_t data_read_len;
 
@@ -338,7 +322,7 @@ static esp_err_t spi_nand_fast_read(spi_nand_flash_device_t *handle, uint8_t *da
     };
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
-    t.flags = SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+    t.flags = SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL;
 #endif
 
     if (half_duplex) {
@@ -394,7 +378,7 @@ esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *
     uint32_t spi_flags = 0;
     if (handle->config.io_mode == SPI_NAND_IO_MODE_QOUT || handle->config.io_mode == SPI_NAND_IO_MODE_QIO) {
         cmd = CMD_PROGRAM_LOAD_X4;
-        spi_flags = SPI_TRANS_MODE_QIO;
+        spi_flags = SPI_NAND_TRANS_MODE_QIO;
     }
 
     const uint8_t *data_write = data;
@@ -402,7 +386,7 @@ esp_err_t spi_nand_program_load(spi_nand_flash_device_t *handle, const uint8_t *
     bool manual_dma = false;
     spi_nand_tx_prepare_write_buffers(handle, data, length, &data_write, &manual_dma);
     if (manual_dma) {
-        spi_flags |= SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+        spi_flags |= SPI_NAND_TRANS_DMA_BUFFER_ALIGN_MANUAL;
     }
 #endif
 
