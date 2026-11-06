@@ -7,7 +7,9 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 #include <inttypes.h>
+#include <assert.h>
 #include "esp_check.h"
 #include "esp_err.h"
 #include "spi_nand_oper.h"
@@ -15,6 +17,7 @@
 #include "nand_flash_devices.h"
 #include "nand_device_types.h"
 #include "nand_ecc_decode.h"
+#include "nand_impl_common.h"
 
 #define ROM_WAIT_THRESHOLD_US 1000
 /* Vendor tables pass typical tR/tPROG/tBERS; datasheet max is often several
@@ -102,12 +105,17 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.ecc_data.ecc_data_refresh_threshold = 4;
     (*handle)->chip.ecc_data.ecc_status_reg_len_in_bits = 2;
     (*handle)->ecc_status_decoder = nand_ecc_decode_2bit;
+    (*handle)->select_die = nand_select_die_noop;
+    (*handle)->active_die = UINT32_MAX;
     (*handle)->chip.log2_ppb = 6;         // 64 pages per block is standard
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
+    (*handle)->chip.num_dies = 1;
+    (*handle)->chip.num_luns_per_die = 1;
     (*handle)->chip.flags = 0;
 
     ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ESP_GOTO_ON_ERROR(nand_validate_chip_geometry(*handle), fail, TAG, "");
     ESP_GOTO_ON_ERROR(unprotect_chip(*handle), fail, TAG, "Failed to clear protection register");
 
     if (((*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QOUT || (*handle)->config.io_mode ==  SPI_NAND_IO_MODE_QIO)
@@ -212,18 +220,53 @@ static esp_err_t wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_
     return ESP_OK;
 }
 
+/* Custom select_die: select die and return page address local to that die.
+ * Default no-op: leave global page unchanged (single-die or die folded into row address)*/
+static esp_err_t nand_prepare_row_addr(spi_nand_flash_device_t *dev, uint32_t global_page, uint32_t *row_out)
+{
+    assert(row_out != NULL);
+
+    if (!nand_has_explicit_die_select(dev)) {
+        *row_out = global_page;
+        return ESP_OK;
+    }
+
+    uint32_t pages_per_die = (dev->chip.num_blocks / dev->chip.num_dies) << dev->chip.log2_ppb;
+    ESP_RETURN_ON_FALSE(pages_per_die != 0, ESP_ERR_INVALID_STATE, TAG, "pages_per_die is 0");
+
+    uint32_t die = global_page / pages_per_die;
+    if (die != dev->active_die) {
+        ESP_RETURN_ON_ERROR(dev->select_die(dev, die), TAG, "select_die(%" PRIu32 ") failed", die);
+        dev->active_die = die;
+    }
+    *row_out = global_page % pages_per_die;
+    return ESP_OK;
+}
+
 static esp_err_t read_page_and_wait(spi_nand_flash_device_t *dev, uint32_t page, uint8_t *status_out)
 {
-    ESP_RETURN_ON_ERROR(spi_nand_read_page(dev, page), TAG, "");
+    uint32_t row;
+    ESP_RETURN_ON_ERROR(nand_prepare_row_addr(dev, page, &row), TAG, "");
+    ESP_RETURN_ON_ERROR(spi_nand_read_page(dev, row), TAG, "");
 
     return wait_for_ready(dev, dev->chip.read_page_delay_us, status_out);
 }
 
 static esp_err_t program_execute_and_wait(spi_nand_flash_device_t *dev, uint32_t page, uint8_t *status_out)
 {
-    ESP_RETURN_ON_ERROR(spi_nand_program_execute(dev, page), TAG, "");
+    uint32_t row;
+    ESP_RETURN_ON_ERROR(nand_prepare_row_addr(dev, page, &row), TAG, "");
+    ESP_RETURN_ON_ERROR(spi_nand_program_execute(dev, row), TAG, "");
 
     return wait_for_ready(dev, dev->chip.program_page_delay_us, status_out);
+}
+
+static esp_err_t erase_block_and_wait(spi_nand_flash_device_t *dev, uint32_t first_block_page, uint8_t *status_out)
+{
+    uint32_t row;
+    ESP_RETURN_ON_ERROR(nand_prepare_row_addr(dev, first_block_page, &row), TAG, "");
+    ESP_RETURN_ON_ERROR(spi_nand_erase_block(dev, row), TAG, "");
+    return wait_for_ready(dev, dev->chip.erase_block_delay_us, status_out);
 }
 
 static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t block, uint32_t offset)
@@ -231,11 +274,7 @@ static uint16_t get_column_address(spi_nand_flash_device_t *handle, uint32_t blo
     uint16_t column_addr = offset;
 
     if ((handle->chip.flags & NAND_FLAG_HAS_READ_PLANE_SELECT) || (handle->chip.flags & NAND_FLAG_HAS_PROG_PLANE_SELECT)) {
-        if (handle->chip.num_planes == 0) {
-            ESP_LOGE(TAG, "Invalid number of planes (0)");
-            return column_addr;  // Return offset without plane selection
-        }
-        uint32_t plane = block % handle->chip.num_planes;
+        uint32_t plane = block % handle->chip.num_planes_per_lun;
         // Plane index is encoded in the column address bit after the page MSB.
         // 2048-byte pages use bit 12; 4096-byte pages use bit 13.
         column_addr += plane << (handle->chip.log2_page_size + 1);
@@ -280,10 +319,7 @@ esp_err_t nand_mark_bad(spi_nand_flash_device_t *handle, uint32_t block)
 
     ESP_GOTO_ON_ERROR(read_page_and_wait(handle, first_block_page, NULL), fail, TAG, "");
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
-    ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
-                      fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle, handle->chip.erase_block_delay_us, &status),
-                      fail, TAG, "");
+    ESP_GOTO_ON_ERROR(erase_block_and_wait(handle, first_block_page, &status), fail, TAG, "");
     if ((status & STAT_ERASE_FAILED) != 0) {
         ret = ESP_ERR_NOT_FINISHED;
         goto fail;
@@ -323,11 +359,7 @@ esp_err_t nand_erase_block(spi_nand_flash_device_t *handle, uint32_t block)
     uint32_t first_block_page = block * (1 << handle->chip.log2_ppb);
 
     ESP_GOTO_ON_ERROR(spi_nand_write_enable(handle), fail, TAG, "");
-    ESP_GOTO_ON_ERROR(spi_nand_erase_block(handle, first_block_page),
-                      fail, TAG, "");
-    ESP_GOTO_ON_ERROR(wait_for_ready(handle,
-                                     handle->chip.erase_block_delay_us, &status),
-                      fail, TAG, "");
+    ESP_GOTO_ON_ERROR(erase_block_and_wait(handle, first_block_page, &status), fail, TAG, "");
 
     if ((status & STAT_ERASE_FAILED) != 0) {
         ret = ESP_ERR_NOT_FINISHED;
@@ -492,7 +524,32 @@ fail:
     return ret;
 }
 
-static bool nand_copy_needs_ram_path(uint32_t flags,
+/* Crossing die/LUN needs the RAM path; equal blocks-per-die / blocks-per-LUN assumed. */
+static bool nand_copy_crosses_die_or_lun(const nand_flash_geometry_t *chip,
+                                         uint32_t src_block,
+                                         uint32_t dst_block)
+{
+    if (chip->num_dies == 1 && chip->num_luns_per_die == 1) {
+        return false;
+    }
+
+    uint32_t units = chip->num_dies * chip->num_luns_per_die;
+    uint32_t blocks_per_lun = chip->num_blocks / units;
+    uint32_t blocks_per_die = blocks_per_lun * chip->num_luns_per_die;
+    if ((src_block / blocks_per_die) != (dst_block / blocks_per_die)) {
+        return true;
+    }
+    if (chip->num_luns_per_die > 1) {
+        uint32_t src_lun = (src_block / blocks_per_lun) % chip->num_luns_per_die;
+        uint32_t dst_lun = (dst_block / blocks_per_lun) % chip->num_luns_per_die;
+        if (src_lun != dst_lun) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool nand_copy_needs_ram_path(const nand_flash_geometry_t *chip,
                                      uint32_t src_block,
                                      uint32_t dst_block,
                                      uint16_t src_column_addr,
@@ -501,7 +558,10 @@ static bool nand_copy_needs_ram_path(uint32_t flags,
     if (src_column_addr != dst_column_addr) {
         return true;
     }
-    return (flags & NAND_FLAG_IDM_SAME_PARITY_REQUIRED) &&
+    if (nand_copy_crosses_die_or_lun(chip, src_block, dst_block)) {
+        return true;
+    }
+    return (chip->flags & NAND_FLAG_IDM_SAME_PARITY_REQUIRED) &&
            ((src_block & 1U) != (dst_block & 1U));
 }
 
@@ -528,7 +588,7 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
     uint16_t src_column_addr = get_column_address(handle, src_block, 0);
     uint16_t dst_column_addr = get_column_address(handle, dst_block, 0);
 
-    bool need_ram_copy = nand_copy_needs_ram_path(handle->chip.flags, src_block, dst_block,
+    bool need_ram_copy = nand_copy_needs_ram_path(&handle->chip, src_block, dst_block,
                                                   src_column_addr, dst_column_addr);
 
     if (need_ram_copy) {
@@ -550,16 +610,18 @@ esp_err_t nand_copy(spi_nand_flash_device_t *handle, uint32_t src, uint32_t dst)
         ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
 
         if ((status & STAT_PROGRAM_FAILED) != 0) {
+            free(copy_buf);
             ESP_LOGD(TAG, "copy, prog failed");
             return ESP_ERR_NOT_FINISHED;
         }
         free(copy_buf);
-    }
-
-    ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
-    if ((status & STAT_PROGRAM_FAILED) != 0) {
-        ESP_LOGD(TAG, "copy, prog failed");
-        return ESP_ERR_NOT_FINISHED;
+    } else {
+        // Internal Data Move: cache already holds src from read_page_and_wait above.
+        ESP_GOTO_ON_ERROR(program_execute_and_wait(handle, dst, &status), fail, TAG, "");
+        if ((status & STAT_PROGRAM_FAILED) != 0) {
+            ESP_LOGD(TAG, "copy, prog failed");
+            return ESP_ERR_NOT_FINISHED;
+        }
     }
 
 #if CONFIG_NAND_FLASH_VERIFY_WRITE

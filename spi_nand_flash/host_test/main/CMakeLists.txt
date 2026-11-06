@@ -1,4 +1,4 @@
-set(src "test_app_main.cpp" "test_nand_ecc_decode.cpp")
+set(src "test_app_main.cpp" "test_nand_ecc_decode.cpp" "test_nand_impl_common.cpp")
 
 if(CONFIG_NAND_FLASH_ENABLE_BDL)
     list(APPEND src "test_nand_flash_bdl.cpp")
