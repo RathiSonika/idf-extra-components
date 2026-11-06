@@ -30,7 +30,8 @@ extern "C" {
 #define INVALID_PAGE 0xFFFF
 
 // True hardware dual-plane devices (e.g. Micron MT29F2G): plane index is encoded
-// in the column address. See get_column_address() in nand_impl.c.
+// in the column address. See get_column_address() in nand_impl.c (uses
+// num_planes_per_lun after post-detect sync from num_planes).
 #define NAND_FLAG_HAS_PROG_PLANE_SELECT       BIT(0)
 #define NAND_FLAG_HAS_READ_PLANE_SELECT       BIT(1)
 // Single-plane devices whose Internal Data Move requires same odd/even block
@@ -64,6 +65,22 @@ typedef struct {
  */
 typedef esp_err_t (*nand_ecc_decode_fn)(spi_nand_flash_device_t *dev, uint8_t status_c0, nand_ecc_status_t *out);
 
+/**
+ * @brief Per-chip die select, installed as spi_nand_flash_device_t::select_die.
+ *
+ * Default is a no-op (single-die, or multi-die with die folded into the row address).
+ *
+ * To add a multi-die chip that needs C2h / Set Feature D0h / similar:
+ * 1. Set chip.num_dies in the chip init.
+ * 2. Assign select_die to a function that selects @p die (0 .. num_dies-1).
+ * Core then sends page addresses local to that die. Leave the default no-op if the
+ * die is selected only via the global row address (still set num_dies for IDM limits).
+ *
+ * @param dev  Device handle.
+ * @param die  Die / target index to make active.
+ */
+typedef esp_err_t (*nand_select_die_fn)(spi_nand_flash_device_t *dev, uint32_t die);
+
 struct spi_nand_flash_device_t {
     spi_nand_flash_config_t config;
     spi_nand_chip_t chip;                  // Geometry (legacy typedef for nand_flash_geometry_t)
@@ -71,6 +88,8 @@ struct spi_nand_flash_device_t {
     const spi_nand_ops *ops;
     void *ops_priv_data;
     nand_ecc_decode_fn ecc_status_decoder;  // Per-chip C0h ECC status decoder; never NULL after init
+    nand_select_die_fn select_die;          // Per-chip die select; never NULL after init (no-op by default)
+    uint32_t active_die;                    // Last selected die; UINT32_MAX = none yet
     uint8_t *work_buffer;
     uint8_t *read_buffer;
     uint8_t *temp_buffer;

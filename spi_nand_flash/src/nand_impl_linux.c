@@ -108,11 +108,27 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_ppb = 6;         // 64 pages per block is standard
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
+    (*handle)->chip.num_dies = 1;
+    (*handle)->chip.num_luns_per_die = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->select_die = NULL; /* Linux emul has no die select; flag must stay clear */
+    (*handle)->active_die = UINT32_MAX;
     (*handle)->chip.page_size = 1 << (*handle)->chip.log2_page_size;
     (*handle)->chip.block_size = (1 << (*handle)->chip.log2_ppb) * (*handle)->chip.page_size;
 
     ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    /* Keep geometry checks aligned with nand_impl.c (no explicit die select on Linux emul). */
+    if ((*handle)->chip.num_planes_per_lun == 0) {
+        (*handle)->chip.num_planes_per_lun = (*handle)->chip.num_planes;
+    }
+    ESP_GOTO_ON_FALSE((*handle)->chip.num_dies != 0, ESP_ERR_INVALID_STATE, fail, TAG,
+                      "num_dies must be non-zero");
+    ESP_GOTO_ON_FALSE((*handle)->chip.num_luns_per_die != 0, ESP_ERR_INVALID_STATE, fail, TAG,
+                      "num_luns_per_die must be non-zero");
+    ESP_GOTO_ON_FALSE(((*handle)->chip.num_blocks %
+                       ((*handle)->chip.num_dies * (*handle)->chip.num_luns_per_die)) == 0,
+                      ESP_ERR_INVALID_STATE, fail, TAG,
+                      "num_blocks not divisible by num_dies * num_luns_per_die");
 
     (*handle)->work_buffer = heap_caps_malloc((*handle)->chip.page_size, MALLOC_CAP_DEFAULT);
     ESP_GOTO_ON_FALSE((*handle)->work_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");

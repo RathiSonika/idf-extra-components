@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - New `nand_ecc_status_t` values: `NAND_ECC_1_TO_4_BITS_CORRECTED`, exact counts `NAND_ECC_1_BIT_CORRECTED` ... `NAND_ECC_8_BITS_CORRECTED`, and `NAND_ECC_INVALID` for an ECC status that cannot be determined
+- `nand_flash_geometry_t` fields `num_dies`, `num_luns_per_die`, and `num_planes_per_lun` (defaults: dies/LUNs = 1 before detect; `num_planes_per_lun` synced from `num_planes` after detect when left 0); `nand_copy()` Internal Data Move refuses cross-die and cross-LUN pairs when those counts are above 1
+- Extensible die select via per-device `select_die` hook (default no-op). Explicit-select chips (e.g. C2h / feature D0h) install a vendor hook; address-folded multi-die parts keep the no-op and only set `num_dies` for IDM limits
 
 ### Fixed
 
