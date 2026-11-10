@@ -7,6 +7,7 @@ set(srcs "src/nand.c"
          "src/dhara_glue.c"
          "src/nand_impl_wrap.c"
          "src/nand_ecc_decode.c"
+         "src/nand_impl_common.c"
          "src/devices/nand_gigadevice_ecc_decode.c")
 
 if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" GREATER_EQUAL "6.0")

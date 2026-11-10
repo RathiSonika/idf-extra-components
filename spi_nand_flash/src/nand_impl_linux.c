@@ -13,6 +13,7 @@
 #include "nand.h"
 #include "nand_linux_mmap_emul.h"
 #include "nand_ecc_decode.h"
+#include "nand_impl_common.h"
 
 static const char *TAG = "nand_linux";
 
@@ -108,11 +109,16 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->chip.log2_ppb = 6;         // 64 pages per block is standard
     (*handle)->chip.log2_page_size = 11;  // 2048 bytes per page is fairly standard
     (*handle)->chip.num_planes = 1;
+    (*handle)->chip.num_dies = 1;
+    (*handle)->chip.num_luns_per_die = 1;
     (*handle)->chip.flags = 0;
+    (*handle)->select_die = nand_select_die_noop;
+    (*handle)->active_die = UINT32_MAX;
     (*handle)->chip.page_size = 1 << (*handle)->chip.log2_page_size;
     (*handle)->chip.block_size = (1 << (*handle)->chip.log2_ppb) * (*handle)->chip.page_size;
 
     ESP_GOTO_ON_ERROR(detect_chip(*handle), fail, TAG, "Failed to detect nand chip");
+    ESP_GOTO_ON_ERROR(nand_validate_chip_geometry(*handle), fail, TAG, "");
 
     (*handle)->work_buffer = heap_caps_malloc((*handle)->chip.page_size, MALLOC_CAP_DEFAULT);
     ESP_GOTO_ON_FALSE((*handle)->work_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
