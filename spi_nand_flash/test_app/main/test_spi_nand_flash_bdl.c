@@ -26,85 +26,11 @@
 #include "spi_nand_flash_test_helpers.h"
 #include "test_spi_nand_common.h"
 
-static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_page, uint16_t page_count);
-
-static void setup_nand_flash(spi_device_handle_t *spi_handle, spi_nand_flash_io_mode_t mode, uint8_t flags, esp_blockdev_handle_t *bdl_handle)
-{
-    spi_device_handle_t spi;
-    spi_nand_test_setup_chip(&spi, flags);
-
-    spi_nand_flash_config_t nand_flash_config = {
-        .device_handle = spi,
-        .flags = flags,
-        .io_mode = mode,
-    };
-    esp_blockdev_handle_t wl_bdl;
-    TEST_ESP_OK(spi_nand_flash_init_with_layers(&nand_flash_config, &wl_bdl));
-
-    *spi_handle = spi;
-    *bdl_handle = wl_bdl;
-}
-
 static void deinit_nand_flash(spi_device_handle_t spi, esp_blockdev_handle_t bdl_handle)
 {
     (void)spi;
     bdl_handle->ops->release(bdl_handle);
     spi_nand_flash_test_teardown();
-}
-
-TEST_CASE("erase nand flash using block device interface [via dhara]", "[spi_nand_flash]")
-{
-    spi_device_handle_t spi;
-    esp_blockdev_handle_t bdl_handle;
-    setup_nand_flash(&spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX, &bdl_handle);
-
-    /* Erase length must be aligned to erase_size (block size) */
-    size_t erase_size = (size_t)bdl_handle->geometry.erase_size;
-    size_t erase_len = (size_t)((bdl_handle->geometry.disk_size / erase_size) * erase_size);
-    TEST_ESP_OK(bdl_handle->ops->erase(bdl_handle, 0, erase_len));
-
-    do_single_write_test(bdl_handle, 1, 1);
-    deinit_nand_flash(spi, bdl_handle);
-}
-
-static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_page, uint16_t page_count)
-{
-    uint8_t *temp_buf = NULL;
-    uint8_t *pattern_buf = NULL;
-    uint32_t page_size = bdl->geometry.write_size;
-    TEST_ASSERT_TRUE(page_size > 0);
-    uint32_t num_pages = (uint32_t)(bdl->geometry.disk_size / page_size);
-
-    TEST_ASSERT_TRUE((start_page + page_count) <= num_pages);
-
-    pattern_buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
-    TEST_ASSERT_NOT_NULL(pattern_buf);
-    temp_buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
-    TEST_ASSERT_NOT_NULL(temp_buf);
-
-    spi_nand_flash_fill_buffer(pattern_buf, page_size / sizeof(uint32_t));
-
-    int64_t read_time = 0;
-    int64_t write_time = 0;
-
-    for (uint32_t i = start_page; i < (start_page + page_count); i++) {
-        int64_t start = esp_timer_get_time();
-        bdl->ops->write(bdl, pattern_buf, i * page_size, page_size);
-        write_time += esp_timer_get_time() - start;
-
-        memset((void *)temp_buf, 0x00, page_size);
-
-        start = esp_timer_get_time();
-        bdl->ops->read(bdl, temp_buf, page_size, i * page_size, page_size);
-        read_time += esp_timer_get_time() - start;
-
-        TEST_ASSERT_EQUAL(0, spi_nand_flash_check_buffer(temp_buf, page_size / sizeof(uint32_t)));
-    }
-    free(pattern_buf);
-    free(temp_buf);
-
-    printf("Wrote %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, write_time, (float)page_size * page_count / write_time * 1000);
-    printf("Read %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, read_time, (float)page_size * page_count / read_time * 1000);
 }
 
 /* Returns 0 on success, non-zero on failure. Frees buffers so caller can always run cleanup. */
@@ -160,28 +86,6 @@ static int do_multiple_page_write_test(esp_blockdev_handle_t bdl, uint32_t start
     printf("Wrote %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, write_time, (float)page_size * page_count / write_time * 1000);
     printf("Read %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, read_time, (float)page_size * page_count / read_time * 1000);
     return ret;
-}
-
-static void test_write_nand_flash_pages(spi_nand_flash_io_mode_t mode, uint8_t flags)
-{
-    spi_device_handle_t spi;
-    esp_blockdev_handle_t bdl_handle;
-    setup_nand_flash(&spi, mode, flags, &bdl_handle);
-
-    uint32_t page_size = bdl_handle->geometry.write_size;
-    TEST_ASSERT_TRUE(page_size > 0);
-    uint32_t num_pages = (uint32_t)(bdl_handle->geometry.disk_size / page_size);
-    printf("Number of pages: %" PRIu32 ", Page size: %" PRIu32 "\n", num_pages, page_size);
-
-    int ret = do_multiple_page_write_test(bdl_handle, 1, 2);
-    do_single_write_test(bdl_handle, 16, 32);
-    deinit_nand_flash(spi, bdl_handle);
-    TEST_ASSERT_EQUAL(0, ret);
-}
-
-TEST_CASE("read and write nand flash pages using block device interface (via dhara) (sio half-duplex)", "[spi_nand_flash]")
-{
-    test_write_nand_flash_pages(SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX);
 }
 
 /**
@@ -397,33 +301,6 @@ TEST_CASE("Flash BDL GET_NAND_FLASH_INFO ioctl", "[spi_nand_flash][bdl]")
     TEST_ASSERT_EQUAL((uint32_t)(bdl->geometry.disk_size / bdl->geometry.erase_size), flash_info.geometry.num_blocks);
 
     deinit_nand_flash(spi, bdl);
-}
-
-TEST_CASE("nand_flash_get_blockdev and spi_nand_flash_wl_get_blockdev error paths", "[spi_nand_flash][bdl]")
-{
-    spi_device_handle_t spi;
-    spi_nand_test_setup_chip(&spi, SPI_DEVICE_HALFDUPLEX);
-    spi_nand_flash_config_t config = {
-        .device_handle = spi,
-        .flags = SPI_DEVICE_HALFDUPLEX,
-        .io_mode = SPI_NAND_IO_MODE_SIO,
-    };
-    esp_blockdev_handle_t out = NULL;
-
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, nand_flash_get_blockdev(NULL, &out));
-    TEST_ASSERT_NULL(out);
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, nand_flash_get_blockdev(&config, NULL));
-
-    esp_blockdev_handle_t flash_bdl = NULL;
-    TEST_ESP_OK(nand_flash_get_blockdev(&config, &flash_bdl));
-    TEST_ASSERT_NOT_NULL(flash_bdl);
-
-    out = NULL;
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, spi_nand_flash_wl_get_blockdev(NULL, &out));
-    TEST_ASSERT_NULL(out);
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, spi_nand_flash_wl_get_blockdev(flash_bdl, NULL));
-
-    deinit_nand_flash(spi, flash_bdl);
 }
 
 TEST_CASE("Flash BDL erase invalid args", "[spi_nand_flash][bdl]")
@@ -916,7 +793,144 @@ TEST_CASE("Flash BDL read at end of device (last byte)", "[spi_nand_flash][bdl]"
     deinit_nand_flash(spi, bdl);
 }
 
-/* --- WL BDL tests (grouped together) --- */
+TEST_CASE("nand_flash_get_blockdev error paths", "[spi_nand_flash][bdl]")
+{
+    spi_device_handle_t spi;
+    spi_nand_test_setup_chip(&spi, SPI_DEVICE_HALFDUPLEX);
+    spi_nand_flash_config_t config = {
+        .device_handle = spi,
+        .flags = SPI_DEVICE_HALFDUPLEX,
+        .io_mode = SPI_NAND_IO_MODE_SIO,
+    };
+    esp_blockdev_handle_t out = NULL;
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, nand_flash_get_blockdev(NULL, &out));
+    TEST_ASSERT_NULL(out);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, nand_flash_get_blockdev(&config, NULL));
+
+    esp_blockdev_handle_t flash_bdl = NULL;
+    TEST_ESP_OK(nand_flash_get_blockdev(&config, &flash_bdl));
+    TEST_ASSERT_NOT_NULL(flash_bdl);
+
+    deinit_nand_flash(spi, flash_bdl);
+}
+
+#if CONFIG_NAND_FLASH_ENABLE_WL
+
+static void setup_nand_flash(spi_device_handle_t *spi_handle, spi_nand_flash_io_mode_t mode, uint8_t flags, esp_blockdev_handle_t *bdl_handle)
+{
+    spi_device_handle_t spi;
+    spi_nand_test_setup_chip(&spi, flags);
+
+    spi_nand_flash_config_t nand_flash_config = {
+        .device_handle = spi,
+        .flags = flags,
+        .io_mode = mode,
+    };
+    esp_blockdev_handle_t wl_bdl;
+    TEST_ESP_OK(spi_nand_flash_init_with_layers(&nand_flash_config, &wl_bdl));
+
+    *spi_handle = spi;
+    *bdl_handle = wl_bdl;
+}
+
+static void do_single_write_test(esp_blockdev_handle_t bdl, uint32_t start_page, uint16_t page_count)
+{
+    uint8_t *temp_buf = NULL;
+    uint8_t *pattern_buf = NULL;
+    uint32_t page_size = bdl->geometry.write_size;
+    TEST_ASSERT_TRUE(page_size > 0);
+    uint32_t num_pages = (uint32_t)(bdl->geometry.disk_size / page_size);
+
+    TEST_ASSERT_TRUE((start_page + page_count) <= num_pages);
+
+    pattern_buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
+    TEST_ASSERT_NOT_NULL(pattern_buf);
+    temp_buf = (uint8_t *)heap_caps_malloc(page_size, MALLOC_CAP_DEFAULT);
+    TEST_ASSERT_NOT_NULL(temp_buf);
+
+    spi_nand_flash_fill_buffer(pattern_buf, page_size / sizeof(uint32_t));
+
+    int64_t read_time = 0;
+    int64_t write_time = 0;
+
+    for (uint32_t i = start_page; i < (start_page + page_count); i++) {
+        int64_t start = esp_timer_get_time();
+        bdl->ops->write(bdl, pattern_buf, i * page_size, page_size);
+        write_time += esp_timer_get_time() - start;
+
+        memset((void *)temp_buf, 0x00, page_size);
+
+        start = esp_timer_get_time();
+        bdl->ops->read(bdl, temp_buf, page_size, i * page_size, page_size);
+        read_time += esp_timer_get_time() - start;
+
+        TEST_ASSERT_EQUAL(0, spi_nand_flash_check_buffer(temp_buf, page_size / sizeof(uint32_t)));
+    }
+    free(pattern_buf);
+    free(temp_buf);
+
+    printf("Wrote %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, write_time, (float)page_size * page_count / write_time * 1000);
+    printf("Read %" PRIu32 " bytes in %" PRId64 " us, avg %.2f kB/s\n", page_size * page_count, read_time, (float)page_size * page_count / read_time * 1000);
+}
+
+TEST_CASE("erase nand flash using block device interface [via dhara]", "[spi_nand_flash]")
+{
+    spi_device_handle_t spi;
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&spi, SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX, &bdl_handle);
+
+    /* Erase length must be aligned to erase_size (block size) */
+    size_t erase_size = (size_t)bdl_handle->geometry.erase_size;
+    size_t erase_len = (size_t)((bdl_handle->geometry.disk_size / erase_size) * erase_size);
+    TEST_ESP_OK(bdl_handle->ops->erase(bdl_handle, 0, erase_len));
+
+    do_single_write_test(bdl_handle, 1, 1);
+    deinit_nand_flash(spi, bdl_handle);
+}
+
+static void test_write_nand_flash_pages(spi_nand_flash_io_mode_t mode, uint8_t flags)
+{
+    spi_device_handle_t spi;
+    esp_blockdev_handle_t bdl_handle;
+    setup_nand_flash(&spi, mode, flags, &bdl_handle);
+
+    uint32_t page_size = bdl_handle->geometry.write_size;
+    TEST_ASSERT_TRUE(page_size > 0);
+    uint32_t num_pages = (uint32_t)(bdl_handle->geometry.disk_size / page_size);
+    printf("Number of pages: %" PRIu32 ", Page size: %" PRIu32 "\n", num_pages, page_size);
+
+    int ret = do_multiple_page_write_test(bdl_handle, 1, 2);
+    do_single_write_test(bdl_handle, 16, 32);
+    deinit_nand_flash(spi, bdl_handle);
+    TEST_ASSERT_EQUAL(0, ret);
+}
+
+TEST_CASE("read and write nand flash pages using block device interface (via dhara) (sio half-duplex)", "[spi_nand_flash]")
+{
+    test_write_nand_flash_pages(SPI_NAND_IO_MODE_SIO, SPI_DEVICE_HALFDUPLEX);
+}
+
+TEST_CASE("spi_nand_flash_wl_get_blockdev error paths", "[spi_nand_flash][bdl]")
+{
+    spi_device_handle_t spi;
+    spi_nand_test_setup_chip(&spi, SPI_DEVICE_HALFDUPLEX);
+    spi_nand_flash_config_t config = {
+        .device_handle = spi,
+        .flags = SPI_DEVICE_HALFDUPLEX,
+        .io_mode = SPI_NAND_IO_MODE_SIO,
+    };
+    esp_blockdev_handle_t flash_bdl = NULL;
+    TEST_ESP_OK(nand_flash_get_blockdev(&config, &flash_bdl));
+    TEST_ASSERT_NOT_NULL(flash_bdl);
+
+    esp_blockdev_handle_t out = NULL;
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, spi_nand_flash_wl_get_blockdev(NULL, &out));
+    TEST_ASSERT_NULL(out);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, spi_nand_flash_wl_get_blockdev(flash_bdl, NULL));
+
+    deinit_nand_flash(spi, flash_bdl);
+}
 
 TEST_CASE("WL BDL sync after write", "[spi_nand_flash][bdl]")
 {
@@ -1126,3 +1140,5 @@ TEST_CASE("WL BDL unaligned read and write length returns error", "[spi_nand_fla
     free(buf);
     deinit_nand_flash(spi, wl_bdl);
 }
+
+#endif /* CONFIG_NAND_FLASH_ENABLE_WL */

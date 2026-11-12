@@ -68,6 +68,8 @@ typedef struct spi_nand_flash_config_t spi_nand_flash_config_t;
  *
  * @note When CONFIG_NAND_FLASH_ENABLE_BDL is enabled, this function returns ESP_ERR_NOT_SUPPORTED.
  *       Use spi_nand_flash_init_with_layers() instead.
+ * @note When CONFIG_NAND_FLASH_ENABLE_WL is disabled, this function returns ESP_ERR_NOT_SUPPORTED.
+ *       Use raw flash APIs with a custom FTL, or re-enable Dhara.
  */
 esp_err_t spi_nand_flash_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle);
 
@@ -230,6 +232,7 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle);
  *         - ESP_ERR_INVALID_ARG: Invalid configuration or NULL pointers
  *         - ESP_ERR_NO_MEM: Insufficient memory
  *         - ESP_ERR_NOT_FOUND: NAND device not detected
+ *         - ESP_ERR_NOT_SUPPORTED: CONFIG_NAND_FLASH_ENABLE_WL is disabled
  */
 esp_err_t spi_nand_flash_init_with_layers(spi_nand_flash_config_t *config,
                                           esp_blockdev_handle_t *wl_bdl);
