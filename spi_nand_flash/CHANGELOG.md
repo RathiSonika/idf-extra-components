@@ -27,7 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-=======
 - feat: map ECC status correctly on GigaDevice chips using the ECCSE bits (status register F0h)
 - fix: `nand_prog()` with `CONFIG_NAND_FLASH_VERIFY_WRITE` ignored a data mismatch when the page markers were intact, and did not check the ECC status of the verify read
 - fix: `nand_copy()` with `CONFIG_NAND_FLASH_VERIFY_WRITE` read the reference data from the cache after Program Execute, where it is no longer valid, causing false verify failures

@@ -1,0 +1,33 @@
+# Public headers for the SPI NAND Flash programming guide API reference.
+INPUT = \
+    ../include/spi_nand_flash.h \
+    ../include/esp_nand_blockdev.h \
+    ../include/nand_device_types.h \
+    ../include/nand_diag_api.h
+
+EXCLUDE = \
+    ../include/nand_private \
+    ../include/spi_nand_flash_test_helpers.h \
+    ../include/nand_linux_mmap_emul.h
+
+OUTPUT_DIRECTORY = doxygen_output
+
+WARN_IF_UNDOC_ENUM_VAL = YES
+WARN_AS_ERROR = YES
+
+FULL_PATH_NAMES = YES
+STRIP_FROM_PATH = ../
+STRIP_FROM_INC_PATH = ../
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXPAND_ONLY_PREDEF     = YES
+EXTRACT_ALL            = YES
+PREDEFINED             = $(ENV_DOXYGEN_DEFINES)
+HAVE_DOT = NO
+GENERATE_XML    = YES
+XML_OUTPUT      = xml
+GENERATE_HTML   = NO
+GENERATE_LATEX  = NO
+QUIET = YES
+MARKDOWN_SUPPORT = YES
