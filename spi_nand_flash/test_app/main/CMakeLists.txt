@@ -6,7 +6,8 @@ if(CONFIG_NAND_FLASH_ENABLE_BDL)
     else()
         list(APPEND src "test_spi_nand_flash_bdl.c")
     endif()
-else()
+elseif(CONFIG_NAND_FLASH_ENABLE_WL)
+    # Legacy API requires wear-leveling; skip when WL is disabled.
     list(APPEND src "test_spi_nand_flash.c")
 endif()
 

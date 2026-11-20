@@ -37,6 +37,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - fix: Dhara glue always sets the error code, as required by the Dhara NAND contract: `DHARA_E_BAD_BLOCK` only when the chip may have been programmed or erased (`ESP_ERR_NOT_FINISHED`), `DHARA_E_ECC` for an uncorrectable ECC failure (`ESP_FAIL` with ECC status `NAND_ECC_NOT_CORRECTED` on read or copy source), `DHARA_E_NONE` for host-side or transient failures, which no longer retire the block; previously Dhara could program the same page twice after a failure
 - Winbond 1-bit ECC parts: ECC field value `11b` is now reported as `NAND_ECC_NOT_CORRECTED` instead of `NAND_ECC_4_TO_6_BITS_CORRECTED`
 
+- feat: add Kconfig `NAND_FLASH_ENABLE_WL` (default y) to optionally compile out Dhara FTL
+  Disabling is not recommended for general storage; raw flash / custom FTL only. Legacy init and WL BDL return
+  `ESP_ERR_NOT_SUPPORTED` when Dhara is off.
+- feat: move Dhara `work_buffer` / `read_buffer` ownership into WL (`dhara_glue`); flash
+  layer keeps only SPI `temp_buffer`. OOB marker reads use a stack buffer and DMA bounce.
+
 ### Deprecated
 
 - `nand_ecc_data_t.ecc_status_reg_len_in_bits`: no longer used by the driver
