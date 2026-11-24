@@ -7,6 +7,7 @@ if(CONFIG_NAND_FLASH_ENABLE_BDL)
         list(APPEND src "test_spi_nand_flash_bdl.c")
     endif()
 else()
+    # BDL off ⇒ FTL is Dhara; exercise the legacy page API.
     list(APPEND src "test_spi_nand_flash.c")
 endif()
 
