@@ -77,20 +77,20 @@ struct spi_nand_flash_device_t {
     void *ops_priv_data;
     const nand_ecc_decoder_t *ecc_decoder;  // Per-chip ECC status decoder; never NULL after init
     uint8_t qio_dummy_cycles;               // Dummy clocks after the EBh column address
-    uint8_t *work_buffer;
-    uint8_t *read_buffer;
-    uint8_t *temp_buffer;
+    uint8_t *temp_buffer;                   ///< SPI DMA bounce (flash/SPI layer only)
+    uint8_t *copy_buffer;                   ///< Optional page scratch for nand_copy RAM path / verify
     SemaphoreHandle_t mutex;
 #ifdef CONFIG_IDF_TARGET_LINUX
     nand_mmap_emul_handle_t *emul_handle;
 #endif
 };
 
+#if !CONFIG_NAND_FLASH_FTL_NONE
 /**
- * @brief Attach wear-leveling operations to NAND device (internal use only)
+ * @brief Attach the selected in-tree FTL ops to a NAND device (internal use only)
  *
- * This function attaches the Dhara wear-leveling operation callbacks to the
- * device, enabling wear-leveling functionality.
+ * Sets handle->ops to the FTL backend chosen by CONFIG_NAND_FLASH_FTL_*.
+ * Backend-private buffers are allocated in ops->init.
  *
  * @param[in] handle  NAND device handle
  *
@@ -98,20 +98,20 @@ struct spi_nand_flash_device_t {
  *         - ESP_OK: Success
  *         - ESP_ERR_INVALID_ARG: Invalid handle
  */
-esp_err_t nand_wl_attach_ops(spi_nand_flash_device_t *handle);
+esp_err_t nand_ftl_attach(spi_nand_flash_device_t *handle);
 
 /**
- * @brief Detach wear-leveling operations from NAND device (internal use only)
+ * @brief Detach the in-tree FTL from a NAND device (internal use only)
  *
- * This function detaches the wear-leveling operation callbacks and frees
- * associated private data.
+ * Clears handle->ops and frees backend-private data.
  *
  * @param[in] handle  NAND device handle
  *
  * @return
  *         - ESP_OK: Success
  */
-esp_err_t nand_wl_detach_ops(spi_nand_flash_device_t *handle);
+esp_err_t nand_ftl_detach(spi_nand_flash_device_t *handle);
+#endif // !CONFIG_NAND_FLASH_FTL_NONE
 
 #ifdef __cplusplus
 }

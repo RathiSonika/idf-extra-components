@@ -5,6 +5,7 @@
  */
 
 #include <string.h>
+#include "sdkconfig.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "nand.h"
@@ -13,6 +14,22 @@
 #include "nand_device_types.h"
 
 static const char *TAG = "nand_wl_blockdev";
+
+#if CONFIG_NAND_FLASH_FTL_NONE
+
+esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl,
+                                         esp_blockdev_handle_t *out_bdl_handle_ptr)
+{
+    ESP_RETURN_ON_FALSE(nand_bdl != NULL, ESP_ERR_INVALID_ARG, TAG, "nand_bdl cannot be NULL");
+    ESP_RETURN_ON_FALSE(out_bdl_handle_ptr != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "out_bdl_handle_ptr cannot be NULL");
+    ESP_LOGE(TAG, "spi_nand_flash_wl_get_blockdev() requires an in-tree FTL (Dhara). "
+             "Select CONFIG_NAND_FLASH_FTL_DHARA, or use nand_flash_get_blockdev() "
+             "for raw flash access");
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+#else /* CONFIG_NAND_FLASH_FTL_DHARA */
 
 /**************************************************************************************
  **************************************************************************************
@@ -201,7 +218,7 @@ static esp_err_t spi_nand_flash_wl_blockdev_release(esp_blockdev_handle_t handle
     esp_blockdev_handle_t nand_handle = (esp_blockdev_handle_t)handle->ctx;
     spi_nand_flash_device_t *dev_handle = (spi_nand_flash_device_t *)nand_handle->ctx;
 
-    nand_wl_detach_ops(dev_handle);
+    nand_ftl_detach(dev_handle);
     esp_err_t ret = nand_handle->ops->release(nand_handle);
     free(handle);
 
@@ -240,30 +257,30 @@ esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl, esp_blo
     ESP_RETURN_ON_FALSE(nand_bdl->ops->release != NULL, ESP_ERR_INVALID_STATE, TAG, "Flash BDL release operation is required");
 
     // Initialize ops with dhara operations
-    esp_err_t ret = nand_wl_attach_ops(dev);
+    esp_err_t ret = nand_ftl_attach(dev);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to attach wear-leveling operations");
+        ESP_LOGE(TAG, "Failed to attach FTL operations");
         return ret;
     }
 
     // Initialize dhara lib
     if (dev->ops->init == NULL) {
         ESP_LOGE(TAG, "WL init operation is NULL");
-        nand_wl_detach_ops(dev);
+        nand_ftl_detach(dev);
         return ESP_FAIL;
     }
 
     ret = dev->ops->init(dev, nand_bdl);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize wear-leveling layer");
-        nand_wl_detach_ops(dev);
+        nand_ftl_detach(dev);
         return ret;
     }
 
     esp_blockdev_t *blockdev = (esp_blockdev_t *) heap_caps_calloc(1, sizeof(esp_blockdev_t), MALLOC_CAP_DEFAULT);
     if (blockdev == NULL) {
         dev->ops->deinit(dev);
-        nand_wl_detach_ops(dev);
+        nand_ftl_detach(dev);
         return ESP_ERR_NO_MEM;
     }
     blockdev->ctx = (void *)nand_bdl;
@@ -292,3 +309,5 @@ esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl, esp_blo
     *out_bdl_handle_ptr = blockdev;
     return ESP_OK;
 }
+
+#endif /* CONFIG_NAND_FLASH_FTL_NONE / DHARA */

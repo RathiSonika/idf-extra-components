@@ -16,14 +16,53 @@ menu "SPI NAND Flash configuration"
             Enable Block Device Layer (BDL) support for SPI NAND Flash. This provides:
             - Standard esp_blockdev_t interface for layered architecture
             - Flash Block Device Layer (raw NAND flash access)
-            - Wear-Leveling Block Device Layer (logical sector access with wear leveling)
-            - Advanced layered API (spi_nand_flash_init_with_layers)
+            - Wear-Leveling Block Device Layer (logical sector access with FTL)
+              when NAND_FLASH_FTL_DHARA is selected
+            - Advanced layered API (spi_nand_flash_init_with_layers) when an FTL
+              is selected
             When disabled, only the legacy API is available.
             When enabled, the legacy spi_nand_flash_init_device() is not available (returns
-            ESP_ERR_NOT_SUPPORTED). Use spi_nand_flash_init_with_layers().
+            ESP_ERR_NOT_SUPPORTED). Use spi_nand_flash_init_with_layers() when Dhara
+            is selected, or nand_flash_get_blockdev() for raw flash access.
 
             Note: This option requires ESP-IDF >= 6.0 (esp_blockdev component).
             Enabling this on ESP-IDF < 6.0 will result in a build error.
+
+    choice NAND_FLASH_FTL
+        prompt "NAND flash translation layer" if NAND_FLASH_ENABLE_BDL
+        default NAND_FLASH_FTL_DHARA
+        help
+            Select the flash translation layer above the raw NAND flash driver.
+            Without BDL this stays Dhara (the legacy API requires it) and the
+            choice is hidden in menuconfig.
+
+            Dhara provides logical mapping, wear leveling, bad-block handling,
+            and garbage collection. "None" compiles Dhara out; use
+            nand_flash_get_blockdev() for raw flash or a custom FTL on the Flash BDL.
+
+            WARNING: "None" is NOT recommended for general storage or filesystem
+            use. Raw NAND requires erase-before-program, bad-block handling, and
+            wear management.
+
+            After changing this option, delete the project's dependencies.lock and
+            run "idf.py fullclean reconfigure". A stale lock may still pull
+            espressif/dhara into the build.
+
+        config NAND_FLASH_FTL_DHARA
+            bool "Dhara"
+            help
+                Build espressif/dhara and dhara_glue.c. Used by the legacy API and
+                the wear-leveling BDL.
+
+        config NAND_FLASH_FTL_NONE
+            bool "None (raw Flash BDL only)"
+            depends on NAND_FLASH_ENABLE_BDL
+            help
+                No in-tree FTL. spi_nand_flash_init_with_layers() and
+                spi_nand_flash_wl_get_blockdev() return ESP_ERR_NOT_SUPPORTED.
+                Use nand_flash_get_blockdev() for raw access.
+
+    endchoice
 
     config NAND_ENABLE_STATS
         bool "Host test statistics enabled"
