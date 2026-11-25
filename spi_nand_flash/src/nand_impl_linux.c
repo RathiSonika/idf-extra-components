@@ -11,10 +11,24 @@
 #include "esp_err.h"
 #include "spi_nand_flash.h"
 #include "nand.h"
+#include "nand_impl.h"
 #include "nand_linux_mmap_emul.h"
 #include "nand_ecc_decode.h"
 
 static const char *TAG = "nand_linux";
+
+void nand_deinit_device(spi_nand_flash_device_t *handle)
+{
+    if (handle == NULL) {
+        return;
+    }
+    free(handle->work_buffer);
+    free(handle->read_buffer);
+    if (handle->mutex) {
+        vSemaphoreDelete(handle->mutex);
+    }
+    free(handle);
+}
 
 /* OOB marker layout at page data offset `page_size` (matches nand_impl.c HW path):
  * bytes 0-1: bad-block marker (0xFFFF = good / erased, 0x0000 = bad)
@@ -121,7 +135,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     (*handle)->read_buffer = heap_caps_malloc((*handle)->chip.page_size, MALLOC_CAP_DEFAULT);
     ESP_GOTO_ON_FALSE((*handle)->read_buffer != NULL, ESP_ERR_NO_MEM, fail, TAG, "nomem");
 
-    (*handle)->mutex = xSemaphoreCreateMutex();
+    (*handle)->mutex = xSemaphoreCreateRecursiveMutex();
     if (!(*handle)->mutex) {
         ret = ESP_ERR_NO_MEM;
         goto fail;
@@ -129,12 +143,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     return ret;
 
 fail:
-    free((*handle)->work_buffer);
-    free((*handle)->read_buffer);
-    if ((*handle)->mutex) {
-        vSemaphoreDelete((*handle)->mutex);
-    }
-    free(*handle);
+    nand_deinit_device(*handle);
     *handle = NULL;
     return ret;
 }

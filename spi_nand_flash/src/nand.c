@@ -62,7 +62,7 @@ esp_err_t spi_nand_erase_chip(spi_nand_flash_device_t *handle)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->erase_chip(handle);
     if (ret) {
         goto end;
@@ -70,7 +70,7 @@ esp_err_t spi_nand_erase_chip(spi_nand_flash_device_t *handle)
     handle->ops->deinit(handle);
 
 end:
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
     return ret;
 }
 
@@ -82,7 +82,7 @@ esp_err_t spi_nand_flash_read_page(spi_nand_flash_device_t *handle, uint8_t *buf
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->read(handle, buffer, page_id);
     // After a successful read operation, check the ECC corrected bit status; if the read fails, return an error
     if (ret == ESP_OK && handle->chip.ecc_data.ecc_corrected_bits_status != NAND_ECC_OK) {
@@ -91,7 +91,7 @@ esp_err_t spi_nand_flash_read_page(spi_nand_flash_device_t *handle, uint8_t *buf
             ret = handle->ops->write(handle, buffer, page_id);
         }
     }
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -109,9 +109,9 @@ esp_err_t spi_nand_flash_copy_page(spi_nand_flash_device_t *handle, uint32_t src
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->copy_sector(handle, src_page, dst_page);
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -129,9 +129,9 @@ esp_err_t spi_nand_flash_write_page(spi_nand_flash_device_t *handle, const uint8
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->write(handle, buffer, page_id);
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -149,9 +149,9 @@ esp_err_t spi_nand_flash_trim(spi_nand_flash_device_t *handle, uint32_t page_id)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->trim(handle, page_id);
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -164,9 +164,9 @@ esp_err_t spi_nand_flash_sync(spi_nand_flash_device_t *handle)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->sync(handle);
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -179,9 +179,9 @@ esp_err_t spi_nand_flash_gc(spi_nand_flash_device_t *handle)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    xSemaphoreTake(handle->mutex, portMAX_DELAY);
+    xSemaphoreTakeRecursive(handle->mutex, portMAX_DELAY);
     ret = handle->ops->gc(handle);
-    xSemaphoreGive(handle->mutex);
+    xSemaphoreGiveRecursive(handle->mutex);
 
     return ret;
 }
@@ -230,15 +230,7 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
     ret = nand_emul_deinit(handle);
 #endif
     nand_wl_detach_ops(handle);
-    free(handle->work_buffer);
-    free(handle->read_buffer);
-#ifndef CONFIG_IDF_TARGET_LINUX
-    free(handle->temp_buffer);
-#endif
-    if (handle->mutex) {
-        vSemaphoreDelete(handle->mutex);
-    }
-    free(handle);
+    nand_deinit_device(handle);
     return ret;
 }
 

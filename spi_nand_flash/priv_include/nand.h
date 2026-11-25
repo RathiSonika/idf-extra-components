@@ -18,6 +18,9 @@
 #endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#ifndef CONFIG_IDF_TARGET_LINUX
+#include "esp_timer.h"
+#endif
 #include "nand_device_types.h"
 #include "nand_ecc_decode.h"
 
@@ -80,7 +83,14 @@ struct spi_nand_flash_device_t {
     uint8_t *work_buffer;
     uint8_t *read_buffer;
     uint8_t *temp_buffer;
-    SemaphoreHandle_t mutex;
+    SemaphoreHandle_t mutex;                /* Recursive: public API, wrap and Flash BDL ops nest */
+#ifndef CONFIG_IDF_TARGET_LINUX
+    /* One-shot timer + binary sem for µs sleeps in nand_wait_for_ready().
+     * Shared per device: relies on `mutex` so only one nand_wait_for_ready()
+     * runs at a time, otherwise waiters can steal wakeups. */
+    esp_timer_handle_t wait_timer;
+    SemaphoreHandle_t wait_sem;
+#endif
 #ifdef CONFIG_IDF_TARGET_LINUX
     nand_mmap_emul_handle_t *emul_handle;
 #endif

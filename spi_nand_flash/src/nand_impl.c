@@ -8,11 +8,14 @@
 
 #include <inttypes.h>
 #include <string.h>
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_idf_version.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "spi_nand_oper.h"
 #include "nand.h"
 #include "nand_device_types.h"
@@ -23,11 +26,17 @@
 #include "nand_flash_devices.h"
 #endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
-#define ROM_WAIT_THRESHOLD_US 1000
 /* Vendor tables pass typical tR/tPROG/tBERS; datasheet max is often several
- * times that. Bound hangs at 10× typical plus one tick so max/tick rounding
- * cannot false-timeout. Wrong if actual BUSY exceeds 10× the delay passed in. */
+ * times that. Bound hangs at 10× typical (min 1 ms). Wrong if actual BUSY exceeds
+ * 10× the delay passed in. */
 #define NAND_WAIT_READY_TIMEOUT_MULT 10U
+/* Linux SPI-NAND (include/linux/mtd/spinand.h): initial ≈ min/4, poll ≈ min/20.
+ * Below this, busy-wait — esp_timer task switch often costs tens of µs, so short
+ * read/program polls must not go through the timer. */
+#define NAND_WAIT_BUSY_THRESHOLD_US  100U
+/* Matches Linux SPINAND_READ_POLL_DELAY_US; each STATUS read already costs a full
+ * SPI transaction, so tighter polling only adds bus traffic. */
+#define NAND_WAIT_POLL_MIN_US        5U
 
 /* spi_nand_oper.c bounces non-DMA buffers through temp_buffer only on IDF >= 5.2 */
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
@@ -107,6 +116,105 @@ static esp_err_t unprotect_chip(spi_nand_flash_device_t *dev)
 }
 #endif /* !CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION || CONFIG_NAND_FLASH_GENERIC_WRITE_ERASE_ENABLE */
 
+#if CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD
+/* ISR dispatch wakes the waiter directly, skipping the esp_timer task hop. */
+static void IRAM_ATTR nand_wait_timer_cb(void *arg)
+{
+    BaseType_t need_yield = pdFALSE;
+    xSemaphoreGiveFromISR((SemaphoreHandle_t)arg, &need_yield);
+    if (need_yield == pdTRUE) {
+        esp_timer_isr_dispatch_need_yield();
+    }
+}
+#define NAND_WAIT_TIMER_DISPATCH ESP_TIMER_ISR
+#else
+static void nand_wait_timer_cb(void *arg)
+{
+    xSemaphoreGive((SemaphoreHandle_t)arg);
+}
+#define NAND_WAIT_TIMER_DISPATCH ESP_TIMER_TASK
+#endif /* CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD */
+
+static void nand_wait_ready_resources_deinit(spi_nand_flash_device_t *dev)
+{
+    if (dev == NULL) {
+        return;
+    }
+    if (dev->wait_timer) {
+        esp_timer_stop(dev->wait_timer);
+        esp_timer_delete(dev->wait_timer);
+        dev->wait_timer = NULL;
+    }
+    if (dev->wait_sem) {
+        vSemaphoreDelete(dev->wait_sem);
+        dev->wait_sem = NULL;
+    }
+}
+
+void nand_deinit_device(spi_nand_flash_device_t *handle)
+{
+    if (handle == NULL) {
+        return;
+    }
+    free(handle->work_buffer);
+    free(handle->read_buffer);
+    free(handle->temp_buffer);
+    if (handle->mutex) {
+        vSemaphoreDelete(handle->mutex);
+    }
+    nand_wait_ready_resources_deinit(handle);
+    free(handle);
+}
+
+static esp_err_t nand_wait_ready_resources_init(spi_nand_flash_device_t *dev)
+{
+    dev->wait_sem = xSemaphoreCreateBinary();
+    if (dev->wait_sem == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    const esp_timer_create_args_t args = {
+        .callback = &nand_wait_timer_cb,
+        .arg = dev->wait_sem,
+        .dispatch_method = NAND_WAIT_TIMER_DISPATCH,
+        .name = "nand_wait",
+    };
+    esp_err_t err = esp_timer_create(&args, &dev->wait_timer);
+    if (err != ESP_OK) {
+        vSemaphoreDelete(dev->wait_sem);
+        dev->wait_sem = NULL;
+        return err;
+    }
+    return ESP_OK;
+}
+
+/* Sleep delay_us while allowing other tasks to run (Linux usleep_range analogue).
+ * Falls back to busy-wait for tiny delays or if the timer cannot be started. */
+static void nand_sleep_us(spi_nand_flash_device_t *dev, uint32_t delay_us)
+{
+    if (delay_us == 0) {
+        return;
+    }
+    if (delay_us < NAND_WAIT_BUSY_THRESHOLD_US || dev->wait_timer == NULL || dev->wait_sem == NULL) {
+        esp_rom_delay_us(delay_us);
+        return;
+    }
+
+    /* Drain a stale give from a previous cancelled wait (binary sem holds at most one). */
+    (void)xSemaphoreTake(dev->wait_sem, 0);
+
+    if (esp_timer_start_once(dev->wait_timer, delay_us) != ESP_OK) {
+        esp_rom_delay_us(delay_us);
+        return;
+    }
+
+    /* Safety bound only; the timer should wake us after delay_us. */
+    TickType_t ticks = pdMS_TO_TICKS((delay_us + 999U) / 1000U) + 2;
+    if (xSemaphoreTake(dev->wait_sem, ticks) != pdTRUE) {
+        esp_timer_stop(dev->wait_timer);
+    }
+}
+
 esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_device_t **handle)
 {
     esp_err_t ret = ESP_OK;
@@ -116,6 +224,9 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     if (*handle == NULL) {
         return ESP_ERR_NO_MEM;
     }
+
+    /* Timer/sem must exist before detect/ONFI paths call nand_wait_for_ready(). */
+    ESP_GOTO_ON_ERROR(nand_wait_ready_resources_init(*handle), fail, TAG, "wait-ready resources");
 
     memcpy(&(*handle)->config, config, sizeof(spi_nand_flash_config_t));
 
@@ -190,7 +301,7 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     ESP_GOTO_ON_ERROR(nand_generic_detect_probe(*handle), fail, TAG, "Generic non-destructive probe failed");
 #endif /* CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION */
 
-    (*handle)->mutex = xSemaphoreCreateMutex();
+    (*handle)->mutex = xSemaphoreCreateRecursiveMutex();
     if (!(*handle)->mutex) {
         ret = ESP_ERR_NO_MEM;
         goto fail;
@@ -198,13 +309,8 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config, spi_nand_flash_devic
     return ret;
 
 fail:
-    free((*handle)->work_buffer);
-    free((*handle)->read_buffer);
-    free((*handle)->temp_buffer);
-    if ((*handle)->mutex) {
-        vSemaphoreDelete((*handle)->mutex);
-    }
-    free(*handle);
+    nand_deinit_device(*handle);
+    *handle = NULL;
     return ret;
 }
 
@@ -212,21 +318,27 @@ fail:
 
 esp_err_t nand_wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_operation_time_us, uint8_t *status_out)
 {
-    if (expected_operation_time_us < ROM_WAIT_THRESHOLD_US) {
-        esp_rom_delay_us(expected_operation_time_us);
-    }
-
-    /* Hang bound only. Success path still polls until BUSY clears. */
+    /* Hang bound only. Success path polls until BUSY clears. */
     uint64_t timeout_us = (uint64_t)expected_operation_time_us * NAND_WAIT_READY_TIMEOUT_MULT;
-    uint32_t timeout_ms = (uint32_t)((timeout_us + 999U) / 1000U);
-    if (timeout_ms == 0) {
-        timeout_ms = 1;
+    if (timeout_us < 1000U) {
+        timeout_us = 1000U;
     }
-    TickType_t timeout_ticks = (timeout_ms + portTICK_PERIOD_MS - 1U) / portTICK_PERIOD_MS;
-    timeout_ticks += 1;
-    TickType_t start_tick = xTaskGetTickCount();
 
+    uint32_t initial_delay_us = expected_operation_time_us / 4U;
+    uint32_t poll_delay_us = expected_operation_time_us / 20U;
+    if (poll_delay_us < NAND_WAIT_POLL_MIN_US) {
+        poll_delay_us = NAND_WAIT_POLL_MIN_US;
+    }
+
+    nand_sleep_us(dev, initial_delay_us);
+
+    const int64_t start_us = esp_timer_get_time();
     while (true) {
+        /* Sample time before reading STATUS: a timeout is only reported if BUSY was
+         * observed after the deadline, so preemption between polls cannot cause a
+         * false timeout. */
+        const int64_t elapsed_us = esp_timer_get_time() - start_us;
+
         uint8_t status;
         ESP_RETURN_ON_ERROR(spi_nand_read_register(dev, REG_STATUS, &status), TAG, "");
 
@@ -234,22 +346,17 @@ esp_err_t nand_wait_for_ready(spi_nand_flash_device_t *dev, uint32_t expected_op
             if (status_out) {
                 *status_out = status;
             }
-            break;
+            return ESP_OK;
         }
 
-        if ((xTaskGetTickCount() - start_tick) >= timeout_ticks) {
-            ESP_LOGE(TAG, "STAT_BUSY timeout: status=0x%02x, expected_op=%" PRIu32 " us, waited=%" PRIu32 " ms",
-                     status, expected_operation_time_us,
-                     (uint32_t)timeout_ticks * portTICK_PERIOD_MS);
+        if (elapsed_us >= (int64_t)timeout_us) {
+            ESP_LOGE(TAG, "STAT_BUSY timeout: status=0x%02x, expected_op=%" PRIu32 " us, elapsed=%" PRId64 " us",
+                     status, expected_operation_time_us, elapsed_us);
             return ESP_ERR_TIMEOUT;
         }
 
-        if (expected_operation_time_us >= ROM_WAIT_THRESHOLD_US) {
-            vTaskDelay(1);
-        }
+        nand_sleep_us(dev, poll_delay_us);
     }
-
-    return ESP_OK;
 }
 
 static esp_err_t read_page_and_wait(spi_nand_flash_device_t *dev, uint32_t page, uint8_t *status_out)

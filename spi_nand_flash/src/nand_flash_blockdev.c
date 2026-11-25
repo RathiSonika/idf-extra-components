@@ -23,6 +23,10 @@
 
 static const char *TAG = "nand_flash_blockdev";
 
+/* Recursive: the WL layer already holds the mutex when Dhara calls back into these ops. */
+#define NAND_BDL_LOCK(dev)   xSemaphoreTakeRecursive((dev)->mutex, portMAX_DELAY)
+#define NAND_BDL_UNLOCK(dev) xSemaphoreGiveRecursive((dev)->mutex)
+
 /**************************************************************************************
  **************************************************************************************
  * Block Device Layer interface implementation
@@ -57,7 +61,10 @@ static esp_err_t nand_flash_blockdev_read(esp_blockdev_handle_t handle, uint8_t 
             ESP_LOGE(TAG, "Read range exceeds device bounds");
             return ESP_ERR_INVALID_SIZE;
         }
-        return nand_read(dev_handle, start_page, offset, data_read_len, dst_buf);
+        NAND_BDL_LOCK(dev_handle);
+        esp_err_t res = nand_read(dev_handle, start_page, offset, data_read_len, dst_buf);
+        NAND_BDL_UNLOCK(dev_handle);
+        return res;
     }
 
     /* Multi-page read: page-aligned address and length */
@@ -67,14 +74,16 @@ static esp_err_t nand_flash_blockdev_read(esp_blockdev_handle_t handle, uint8_t 
     }
 
     esp_err_t res = ESP_OK;
+    NAND_BDL_LOCK(dev_handle);
     for (uint32_t page_id = start_page; page_id < start_page + page_count; page_id++) {
         res = nand_read(dev_handle, page_id, 0, page_size, dst_buf);
         if (res != ESP_OK) {
             ESP_LOGE(TAG, "Failed to read page %" PRIu32, page_id);
-            return res;
+            break;
         }
         dst_buf += page_size;
     }
+    NAND_BDL_UNLOCK(dev_handle);
     ESP_LOGV(TAG, "read - src_addr=0x%.16" PRIx64 ", size=0x%08zx, result=0x%08x", src_addr, data_read_len, res);
     return res;
 }
@@ -112,14 +121,16 @@ static esp_err_t nand_flash_blockdev_write(esp_blockdev_handle_t handle, const u
     uint32_t page_count = (uint32_t)(data_write_len >> dev_handle->chip.log2_page_size);
 
     esp_err_t res = ESP_OK;
+    NAND_BDL_LOCK(dev_handle);
     for (uint32_t page_id = start_page; page_id < start_page + page_count; page_id++) {
         res = nand_prog(dev_handle, page_id, src_buf);
         if (res != ESP_OK) {
             ESP_LOGE(TAG, "Failed to write page %" PRIu32, page_id);
-            return res;
+            break;
         }
         src_buf += page_size;
     }
+    NAND_BDL_UNLOCK(dev_handle);
     ESP_LOGV(TAG, "write - dst_addr=0x%.16" PRIx64 ", size=0x%08zx, result=0x%08x", dst_addr, data_write_len, res);
     return res;
 }
@@ -151,6 +162,7 @@ static esp_err_t nand_flash_blockdev_erase(esp_blockdev_handle_t handle, uint64_
     uint32_t start_block = (uint32_t)(start_addr >> log2_block_size);
     uint32_t num_blocks = (uint32_t)(erase_len >> log2_block_size);
     esp_err_t ret = ESP_OK;
+    NAND_BDL_LOCK(dev_handle);
     for (uint32_t block = start_block; block < (start_block + num_blocks); block++) {
         ret = nand_erase_block(dev_handle, block);
         if (ret) {
@@ -158,6 +170,7 @@ static esp_err_t nand_flash_blockdev_erase(esp_blockdev_handle_t handle, uint64_
             break;
         }
     }
+    NAND_BDL_UNLOCK(dev_handle);
     ESP_LOGV(TAG, "erase - start_addr=0x%.16" PRIx64 ", size=0x%zx, result=0x%08x", start_addr, erase_len, ret);
     return ret;
 }
@@ -167,12 +180,8 @@ static esp_err_t nand_flash_blockdev_sync_no_op(esp_blockdev_handle_t handle)
     return ESP_OK;
 }
 
-static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const uint8_t cmd, void *args)
+static esp_err_t nand_flash_blockdev_ioctl_locked(esp_blockdev_handle_t handle, const uint8_t cmd, void *args)
 {
-    if (args == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
     spi_nand_flash_device_t *dev = (spi_nand_flash_device_t *)handle->ctx;
 
     switch (cmd) {
@@ -315,6 +324,19 @@ static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const u
     }
 }
 
+static esp_err_t nand_flash_blockdev_ioctl(esp_blockdev_handle_t handle, const uint8_t cmd, void *args)
+{
+    if (args == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    spi_nand_flash_device_t *dev = (spi_nand_flash_device_t *)handle->ctx;
+    NAND_BDL_LOCK(dev);
+    esp_err_t ret = nand_flash_blockdev_ioctl_locked(handle, cmd, args);
+    NAND_BDL_UNLOCK(dev);
+    return ret;
+}
+
 static esp_err_t nand_flash_blockdev_release(esp_blockdev_handle_t handle)
 {
     esp_err_t res = ESP_OK;
@@ -322,13 +344,7 @@ static esp_err_t nand_flash_blockdev_release(esp_blockdev_handle_t handle)
 #ifdef CONFIG_IDF_TARGET_LINUX
     res = nand_emul_deinit(dev_handle);
 #endif
-    free(dev_handle->work_buffer);
-    free(dev_handle->read_buffer);
-    free(dev_handle->temp_buffer);
-    if (dev_handle->mutex) {
-        vSemaphoreDelete(dev_handle->mutex);
-    }
-    free(dev_handle);
+    nand_deinit_device(dev_handle);
     free(handle);
     return res;
 }
@@ -356,13 +372,7 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config, esp_blockdev_
 
     esp_blockdev_t *blockdev = (esp_blockdev_t *) heap_caps_calloc(1, sizeof(esp_blockdev_t), MALLOC_CAP_DEFAULT);
     if (blockdev == NULL) {
-        free(handle->work_buffer);
-        free(handle->read_buffer);
-        free(handle->temp_buffer);
-        if (handle->mutex) {
-            vSemaphoreDelete(handle->mutex);
-        }
-        free(handle);
+        nand_deinit_device(handle);
         return ESP_ERR_NO_MEM;
     }
     blockdev->ctx = (void *)handle;
