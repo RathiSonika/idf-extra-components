@@ -7,7 +7,8 @@ if(CONFIG_NAND_FLASH_ENABLE_BDL)
         list(APPEND src "test_spi_nand_flash_bdl.c")
     endif()
 else()
-    list(APPEND src "test_spi_nand_flash.c")
+    # Legacy init_device path — wait_ready corner cases need a direct device handle.
+    list(APPEND src "test_spi_nand_flash.c" "test_spi_nand_wait_ready.c")
 endif()
 
 set(priv_reqs unity esp_timer)

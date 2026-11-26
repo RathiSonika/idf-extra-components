@@ -42,10 +42,19 @@ esp_err_t nand_init_device(spi_nand_flash_config_t *config,
                            spi_nand_flash_device_t **handle);
 
 /**
+ * Tear down a device created by nand_init_device() (buffers, mutex, wait-ready
+ * resources, and the handle itself). Does not detach WL ops or Linux emulation.
+ */
+void nand_deinit_device(spi_nand_flash_device_t *handle);
+
+/**
  * Poll STATUS until the device clears BUSY (internal use only).
  *
- * @param expected_operation_time_us  Typical operation time; drives initial delay and poll pacing.
- *                                    Hang bound is 10× this value, ceiled to FreeRTOS ticks, plus one tick.
+ * @param expected_operation_time_us  Typical operation time. Pacing follows the Linux SPI-NAND
+ *                                    ratios (initial ≈ expected/4, poll ≈ expected/20). Delays
+ *                                    ≥ 100 µs block via esp_timer so other tasks can run; shorter
+ *                                    delays busy-wait. Hang bound is 10× expected (min 1 ms),
+ *                                    measured with esp_timer_get_time().
  *
  * @return
  *         - ESP_OK: BUSY cleared

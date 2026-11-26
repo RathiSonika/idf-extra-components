@@ -30,7 +30,7 @@ else()
                      "src/spi_nand_oper.c"
                      "src/nand_onfi_crc.c")
 
-    set(priv_reqs esp_mm)
+    set(priv_reqs esp_mm esp_timer)
 
     if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER "5.3")
         list(APPEND reqs esp_driver_spi)

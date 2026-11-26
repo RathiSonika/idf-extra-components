@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- `nand_wait_for_ready()` uses Linux SPI-NAND style pacing so erase/program latency is no longer
+  rounded up to a FreeRTOS tick (~10 ms at `CONFIG_FREERTOS_HZ=100`):
+  - Initial delay ≈ `expected/4`, poll interval ≈ `expected/20` (floor 5 µs), matching
+    `spinand.h` ratios applied to the chip's typical `tR`/`tPROG`/`tBERS`
+  - Delays ≥ 100 µs block via a per-device `esp_timer` + binary semaphore so other tasks (and idle)
+    can run; shorter gaps busy-wait (`esp_rom_delay_us`) to avoid timer scheduling overhead
+    (erase polls are typically ≥100 µs and yield; short read/program polls busy-wait). The timer
+    uses ISR dispatch when `CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD` is enabled
+  - Hang timeout is now 10× expected with a 1 ms floor, measured in µs with `esp_timer_get_time()`
+    (previously ceiled to FreeRTOS ticks plus one tick, i.e. ≥ ~20 ms at HZ=100). A timeout is only
+    reported if STATUS still shows BUSY on a read started after the deadline, so task preemption
+    between polls cannot cause a false timeout
+  - test_app: `[wait_ready]` cases measure real erase/program/read latency (not idle-chip pacing)
+    and assert it stays below one FreeRTOS tick at HZ=100
+- Flash BDL (`nand_flash_blockdev_*`) read/write/erase/ioctl now take the device mutex, so concurrent
+  callers can no longer interleave SPI transactions or share the wait-ready timer/semaphore. The
+  device mutex is now recursive, because the WL layer already holds it when Dhara calls back into
+  the Flash BDL ops
+
 ## [1.5.0] - 2026-11-20
 
 ### Added
