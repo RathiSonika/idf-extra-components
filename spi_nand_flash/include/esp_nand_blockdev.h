@@ -279,12 +279,16 @@ esp_err_t nand_flash_get_blockdev(spi_nand_flash_config_t *config,
  *         - ESP_ERR_INVALID_ARG: Invalid flash BDL handle or NULL pointer
  *         - ESP_ERR_NO_MEM: Insufficient memory for wear-leveling structures
  *         - ESP_FAIL: Wear-leveling initialization failure
+ *         - ESP_ERR_NOT_SUPPORTED: CONFIG_NAND_FLASH_FTL_NONE is selected
  *
  * @note The returned block device handle must be released with bdl->ops->release(bdl)
  *       when no longer needed.
  *
  * @note This is the recommended layer for filesystem use. It provides wear leveling
  *       and bad block management automatically.
+ *
+ * @note When the FTL choice is None, the function returns ESP_ERR_NOT_SUPPORTED;
+ *       use nand_flash_get_blockdev() for raw flash access.
  */
 esp_err_t spi_nand_flash_wl_get_blockdev(esp_blockdev_handle_t nand_bdl,
                                          esp_blockdev_handle_t *out_bdl_handle_ptr);

@@ -58,6 +58,7 @@ def test_spi_nand_flash_generic(dut: Dut, config: str) -> None:
     'config',
     [
         'bdl',
+        'bdl_ftl_none',
     ],
     indirect=True,
 )

@@ -37,19 +37,30 @@ esp_err_t spi_nand_flash_init_device(spi_nand_flash_config_t *config, spi_nand_f
         return ret;
     }
 
-    ret = nand_wl_attach_ops(*handle);
+    ret = nand_ftl_attach(*handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to attach wear-leveling operations");
+        ESP_LOGE(TAG, "Failed to attach FTL operations");
+        goto fail;
     }
 
-    if ((*handle)->ops->init == NULL) {
+    if ((*handle)->ops == NULL || (*handle)->ops->init == NULL) {
         ESP_LOGE(TAG, "Failed to initialize spi_nand_ops");
         ret = ESP_FAIL;
-        return ret;
+        goto fail;
     }
-    (*handle)->ops->init(*handle, NULL);
+
+    ret = (*handle)->ops->init(*handle, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize wear-leveling layer: %s", esp_err_to_name(ret));
+        goto fail;
+    }
 
     return ESP_OK;
+
+fail:
+    spi_nand_flash_deinit_device(*handle);
+    *handle = NULL;
+    return ret;
 #endif // CONFIG_NAND_FLASH_ENABLE_BDL
 }
 
@@ -229,10 +240,11 @@ esp_err_t spi_nand_flash_deinit_device(spi_nand_flash_device_t *handle)
 #ifdef CONFIG_IDF_TARGET_LINUX
     ret = nand_emul_deinit(handle);
 #endif
-    nand_wl_detach_ops(handle);
-    free(handle->work_buffer);
-    free(handle->read_buffer);
+#if !CONFIG_NAND_FLASH_FTL_NONE
+    nand_ftl_detach(handle);
+#endif
 #ifndef CONFIG_IDF_TARGET_LINUX
+    free(handle->copy_buffer);
     free(handle->temp_buffer);
 #endif
     if (handle->mutex) {
@@ -251,6 +263,12 @@ esp_err_t spi_nand_flash_init_with_layers(spi_nand_flash_config_t *config,
 {
     ESP_RETURN_ON_FALSE(config && wl_bdl, ESP_ERR_INVALID_ARG, TAG, "Invalid arguments");
 
+#if CONFIG_NAND_FLASH_FTL_NONE
+    ESP_LOGE(TAG, "spi_nand_flash_init_with_layers() requires an in-tree FTL (Dhara). "
+             "Select CONFIG_NAND_FLASH_FTL_DHARA, or use nand_flash_get_blockdev() "
+             "for raw flash access");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     // Set default GC factor if not specified
     if (!config->gc_factor) {
         config->gc_factor = 45;
@@ -272,5 +290,6 @@ esp_err_t spi_nand_flash_init_with_layers(spi_nand_flash_config_t *config,
 
     ESP_LOGD(TAG, "SPI NAND Flash initialized with layered block device architecture");
     return ESP_OK;
+#endif // CONFIG_NAND_FLASH_FTL_NONE / DHARA
 }
 #endif // CONFIG_NAND_FLASH_ENABLE_BDL

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- feat: add Kconfig choice `NAND_FLASH_FTL` (`DHARA` default, `NONE` when BDL is enabled)
+  Without BDL the choice stays Dhara (legacy API). `NONE` compiles Dhara out; use
+  `nand_flash_get_blockdev()` for raw flash / custom FTL. `spi_nand_flash_init_with_layers()` and
+  `spi_nand_flash_wl_get_blockdev()` return `ESP_ERR_NOT_SUPPORTED` when `NONE` is selected
+  (prototypes stay declared).
+- feat: move Dhara `work_buffer` / `read_buffer` ownership into WL (`dhara_glue`); flash
+  layer keeps only SPI `temp_buffer`. OOB marker reads use a stack buffer and DMA bounce.
+- refactor: rename internal `nand_wl_attach_ops` / `nand_wl_detach_ops` to `nand_ftl_attach` /
+  `nand_ftl_detach` and gate call sites on `!CONFIG_NAND_FLASH_FTL_NONE` so a future in-tree
+  FTL can share the same attach seam (Dhara remains the only implementation).
+- refactor: allocate an optional flash-owned `copy_buffer` at init when the chip may need the
+  `nand_copy` RAM path (plane-select, multi-LUN, IDM parity) or when `NAND_FLASH_VERIFY_WRITE`
+  is on, instead of always malloc'ing per copy on those parts.
+
 ## [1.5.0] - 2026-11-20
 
 ### Added

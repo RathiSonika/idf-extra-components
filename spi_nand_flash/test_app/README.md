@@ -10,10 +10,11 @@ Unity tests for `spi_nand_flash` (legacy API, BDL, and generic chip detection).
 | File | Purpose |
 |------|---------|
 | `sdkconfig.ci.default` | Legacy API, generic detect **off** (baseline regression) |
-| `sdkconfig.ci.bdl` | Block device layer, generic detect **off** |
+| `sdkconfig.ci.bdl` | Block device layer + Dhara FTL (default), generic detect **off** |
+| `sdkconfig.ci.bdl_ftl_none` | BDL with `CONFIG_NAND_FLASH_FTL_NONE` (Flash BDL only; FTL APIs return `ESP_ERR_NOT_SUPPORTED`) |
 | `sdkconfig.ci.generic` | BDL + `CONFIG_NAND_FLASH_GENERIC_CHIP_DETECTION=y` (Flash BDL bring-up path) |
 
-CI builds all `sdkconfig.ci.*` files via the repo `idf_build_apps` matrix. On-target pytest (`pytest_spi_nand_flash.py`) runs on hardware for `default`, `bdl`, and `generic` when the `spi_nand_flash` runner is available.
+CI builds all `sdkconfig.ci.*` files via the repo `idf_build_apps` matrix. On-target pytest (`pytest_spi_nand_flash.py`) runs on hardware for `default`, `bdl`, `bdl_ftl_none`, and `generic` when the `spi_nand_flash` runner is available.
 
 ## Generic detect — hardware validation
 
